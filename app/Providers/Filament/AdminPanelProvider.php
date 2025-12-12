@@ -17,6 +17,8 @@ use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
+use Filament\View\PanelsRenderHook;
+use Illuminate\Support\Facades\Blade;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -58,6 +60,17 @@ class AdminPanelProvider extends PanelProvider
             ])
             ->authMiddleware([
                 Authenticate::class,
-            ]);
+            ])
+            ->renderHook(
+                PanelsRenderHook::FOOTER,
+                fn() => Blade::render(<<<HTML
+                <div class="flex items-center justify-center w-full p-4 text-xs font-medium text-gray-500 bg-white dark:bg-gray-900 dark:text-gray-400 border-t border-gray-200 dark:border-gray-800">
+                    <span>
+                        &copy; 2025 General Affair Stock System. Built with <span class="text-red-500">❤</span> by 
+                        <a href="https://www.instagram.com/faishalma_" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:underline">Faishal Muhammad</a>.
+                    </span>
+                </div>
+            HTML)
+            );
     }
 }
