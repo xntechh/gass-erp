@@ -3,8 +3,9 @@
 use Illuminate\Support\Facades\Route;
 use App\Models\Transaction;
 
+
 Route::get('/', function () {
-    return view('welcome');
+    return redirect('/admin'); // <--- LEMPAR LANGSUNG KE ADMIN
 });
 
 use App\Http\Controllers\PdfController;
