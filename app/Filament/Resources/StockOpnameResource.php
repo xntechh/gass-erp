@@ -162,33 +162,37 @@ class StockOpnameResource extends Resource
                     ->icon('heroicon-o-arrow-down-tray')
                     ->color('success')
                     ->action(function (StockOpname $record) {
-                        // 1. TAMBAHKAN JUDUL DI SINI
+                        // 👇 KRUSIAL: Load relasi di awal biar gak 500 & gak lemot (N+1 Problem)
+                        $record->load(['details.item.unit']);
+
                         $csvData = "LAPORAN HASIL STOCK OPNAME - GUDANG SENTUL\n";
                         $csvData .= "Nomor Dokumen: " . $record->code . "\n";
                         $csvData .= "Tanggal Audit: " . $record->opname_date . "\n";
-                        $csvData .= "Keterangan: " . ($record->reason ?? '-') . "\n\n"; // Kasih jarak 1 baris
+                        $csvData .= "Keterangan: " . ($record->reason ?? '-') . "\n\n";
 
-                        // 2. Baris Header Tabel
                         $csvData .= "Kode Barang,Nama Barang,Satuan,Stok Sistem,Stok Fisik,Harga Modal,Total Nilai Fisik (Rp),Selisih Qty,Selisih Rupiah\n";
 
                         foreach ($record->details as $detail) {
-                            $selisih = $detail->physical_qty - $detail->system_qty;
-                            $harga = $detail->item->avg_cost ?? 0;
+                            // 👇 PROTEKSI 1: Cek apakah item-nya ada? Kalau gak ada, skip baris ini.
+                            if (!$detail->item) {
+                                continue;
+                            }
+
+                            $selisih = (int)$detail->physical_qty - (int)$detail->system_qty;
+                            $harga = (float)($detail->item->avg_cost ?? 0);
                             $selisihRupiah = $selisih * $harga;
+                            $totalNilaiFisik = (int)$detail->physical_qty * $harga;
 
-                            // Hitung Total Nilai per baris
-                            $totalNilaiFisik = $detail->physical_qty * $harga;
-
-                            // 2. Update Isi CSV
+                            // 👇 PROTEKSI 2: Pakai Nullsafe operator (?->) buat jaga-jaga unit kosong
                             $csvData .= sprintf(
-                                "%s,\"%s\",%s,%d,%d,%d,%d,%d,%d\n", // Tambah %d buat angka baru
+                                "%s,\"%s\",%s,%d,%d,%d,%.2f,%d,%.2f\n",
                                 $detail->item->code,
-                                $detail->item->name,
-                                $detail->item->unit->name ?? '-',
+                                str_replace('"', '""', $detail->item->name), // Escape tanda kutip di nama barang
+                                $detail->item->unit?->name ?? '-',
                                 $detail->system_qty,
                                 $detail->physical_qty,
                                 $harga,
-                                $totalNilaiFisik, // <--- Data Baru Masuk Sini
+                                $totalNilaiFisik,
                                 $selisih,
                                 $selisihRupiah
                             );
@@ -196,7 +200,7 @@ class StockOpnameResource extends Resource
 
                         return response()->streamDownload(function () use ($csvData) {
                             echo $csvData;
-                        }, 'Laporan_SO_' . $record->code . '.csv');
+                        }, 'Laporan_SO_' . ($record->code ?? 'Export') . '.csv');
                     }),
             ])
             ->bulkActions([
