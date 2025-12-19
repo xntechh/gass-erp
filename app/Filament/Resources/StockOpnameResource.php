@@ -151,58 +151,68 @@ class StockOpnameResource extends Resource
             ])
             ->filters([])
             ->actions([
-                Tables\Actions\EditAction::make()
-                    ->hidden(fn(StockOpname $record) => $record->status === 'PROCESSED'),
+                Tables\Actions\EditAction::make(),
 
-                Tables\Actions\DeleteAction::make()
-                    ->hidden(fn(StockOpname $record) => $record->status === 'PROCESSED'),
 
                 Tables\Actions\Action::make('download_report')
                     ->label('Excel')
                     ->icon('heroicon-o-arrow-down-tray')
                     ->color('success')
                     ->action(function (StockOpname $record) {
-                        // 👇 KRUSIAL: Load relasi di awal biar gak 500 & gak lemot (N+1 Problem)
-                        $record->load(['details.item.unit']);
+                        // 1. Ambil data dengan relasi lengkap (Eager Loading)
+                        $record->load(['details.item.unit', 'warehouse']);
 
-                        $csvData = "LAPORAN HASIL STOCK OPNAME - GUDANG SENTUL\n";
-                        $csvData .= "Nomor Dokumen: " . $record->code . "\n";
-                        $csvData .= "Tanggal Audit: " . $record->opname_date . "\n";
-                        $csvData .= "Keterangan: " . ($record->reason ?? '-') . "\n\n";
+                        // 2. Buat Header
+                        $rows = [
+                            ["LAPORAN HASIL STOCK OPNAME - GUDANG SENTUL"],
+                            ["Nomor Dokumen: " . ($record->code ?? '-')],
+                            ["Tanggal Audit: " . ($record->opname_date ?? '-')],
+                            ["Keterangan: " . ($record->reason ?? '-')],
+                            [], // Baris Kosong
+                            ["Kode Barang", "Nama Barang", "Satuan", "Stok Sistem", "Stok Fisik", "Harga Modal", "Total Nilai Fisik", "Selisih Qty", "Selisih Rupiah"]
+                        ];
 
-                        $csvData .= "Kode Barang,Nama Barang,Satuan,Stok Sistem,Stok Fisik,Harga Modal,Total Nilai Fisik (Rp),Selisih Qty,Selisih Rupiah\n";
-
+                        // 3. Looping Data
                         foreach ($record->details as $detail) {
-                            // 👇 PROTEKSI 1: Cek apakah item-nya ada? Kalau gak ada, skip baris ini.
-                            if (!$detail->item) {
-                                continue;
-                            }
+                            $item = $detail->item;
 
-                            $selisih = (int)$detail->physical_qty - (int)$detail->system_qty;
-                            $harga = (float)($detail->item->avg_cost ?? 0);
-                            $selisihRupiah = $selisih * $harga;
-                            $totalNilaiFisik = (int)$detail->physical_qty * $harga;
+                            // Skip kalau barangnya tiba-tiba hilang/terhapus
+                            if (!$item) continue;
 
-                            // 👇 PROTEKSI 2: Pakai Nullsafe operator (?->) buat jaga-jaga unit kosong
-                            $csvData .= sprintf(
-                                "%s,\"%s\",%s,%d,%d,%d,%.2f,%d,%.2f\n",
-                                $detail->item->code,
-                                str_replace('"', '""', $detail->item->name), // Escape tanda kutip di nama barang
-                                $detail->item->unit?->name ?? '-',
-                                $detail->system_qty,
-                                $detail->physical_qty,
-                                $harga,
-                                $totalNilaiFisik,
-                                $selisih,
-                                $selisihRupiah
-                            );
+                            $systemQty = (float)($detail->system_qty ?? 0);
+                            $physicalQty = (float)($detail->physical_qty ?? 0);
+                            $avgCost = (float)($item->avg_cost ?? 0);
+
+                            $selisihQty = $physicalQty - $systemQty;
+                            $totalValuation = $physicalQty * $avgCost;
+                            $varianceValue = $selisihQty * $avgCost;
+
+                            // Masukkan ke baris array
+                            $rows[] = [
+                                $item->code,
+                                '"' . str_replace('"', '""', $item->name) . '"', // Bungkus nama biar gak pecah karena koma
+                                $item->unit?->name ?? '-',
+                                $systemQty,
+                                $physicalQty,
+                                $avgCost,
+                                $totalValuation,
+                                $selisihQty,
+                                $varianceValue
+                            ];
                         }
 
-                        return response()->streamDownload(function () use ($csvData) {
-                            echo $csvData;
-                        }, 'Laporan_SO_' . ($record->code ?? 'Export') . '.csv');
-                    }),
-            ])
+                        // 4. Rakit jadi String CSV
+                        $content = "";
+                        foreach ($rows as $row) {
+                            $content .= implode(",", $row) . "\n";
+                        }
+
+                        // 5. Download
+                        return response()->streamDownload(function () use ($content) {
+                            echo $content;
+                        }, 'Laporan_SO_' . str_replace('/', '-', $record->code) . '.csv');
+                    })
+            ]) // 👈 Penutup ->actions()
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
