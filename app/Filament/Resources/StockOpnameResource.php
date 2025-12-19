@@ -162,8 +162,14 @@ class StockOpnameResource extends Resource
                     ->icon('heroicon-o-arrow-down-tray')
                     ->color('success')
                     ->action(function (StockOpname $record) {
-                        // 1. Update Header CSV (Tambah kolom di paling kanan)
-                        $csvData = "Kode Barang,Nama Barang,Satuan,Stok Sistem,Stok Fisik,Harga Modal,Total Nilai Fisik (Rp),Selisih Qty,Selisih Rupiah\n";
+                        // 1. TAMBAHKAN JUDUL DI SINI
+                        $csvData = "LAPORAN HASIL STOCK OPNAME - GUDANG SENTUL\n";
+                        $csvData .= "Nomor Dokumen: " . $record->code . "\n";
+                        $csvData .= "Tanggal Audit: " . $record->opname_date . "\n";
+                        $csvData .= "Keterangan: " . ($record->reason ?? '-') . "\n\n"; // Kasih jarak 1 baris
+
+                        // 2. Baris Header Tabel
+                        $csvData .= "Kode Barang,Nama Barang,Satuan,Stok Sistem,Stok Fisik,Harga Modal,Total Nilai Fisik (Rp),Selisih Qty,Selisih Rupiah\n";
 
                         foreach ($record->details as $detail) {
                             $selisih = $detail->physical_qty - $detail->system_qty;
@@ -190,7 +196,7 @@ class StockOpnameResource extends Resource
 
                         return response()->streamDownload(function () use ($csvData) {
                             echo $csvData;
-                        }, 'Laporan_SO_' . $record->created_at->format('Y-m-d') . '.csv');
+                        }, 'Laporan_SO_' . $record->code . '.csv');
                     }),
             ])
             ->bulkActions([
