@@ -9,4 +9,10 @@ class Department extends Model
 {
     use HasFactory;
     protected $guarded = [];
+
+    public function users()
+    {
+        // Ini artinya: Satu Departemen punya banyak User
+        return $this->hasMany(User::class);
+    }
 }

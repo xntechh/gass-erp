@@ -9,4 +9,10 @@ class Unit extends Model
 {
     use HasFactory;
     protected $guarded = [];
+
+    public function items()
+    {
+        // Karena di tabel items ada kolom unit_id
+        return $this->hasMany(Item::class);
+    }
 }

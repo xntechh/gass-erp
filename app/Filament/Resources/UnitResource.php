@@ -3,34 +3,46 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\UnitResource\Pages;
-use App\Filament\Resources\UnitResource\RelationManagers;
 use App\Models\Unit;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class UnitResource extends Resource
 {
     protected static ?string $model = Unit::class;
-
     protected static ?string $navigationIcon = 'heroicon-o-scale';
-
     protected static ?string $navigationGroup = 'Master Data';
-    protected static ?int $navigationSort = 3; // Muncul di bawah
+
+    // Urutan ke-2: Setelah Kategori
+    protected static ?int $navigationSort = 2;
 
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('name')
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('code')
-                    ->maxLength(255),
+                Forms\Components\Section::make('Detail Satuan')
+                    ->description('Pastikan nama dan kode satuan sudah sesuai standar perusahaan.')
+                    ->schema([
+                        Forms\Components\TextInput::make('name')
+                            ->label('Nama Satuan')
+                            ->required()
+                            ->unique(ignoreRecord: true) // Anti duplikat
+                            ->placeholder('Contoh: Pieces, Kilogram, Roll')
+                            ->maxLength(255),
+
+                        Forms\Components\TextInput::make('code')
+                            ->label('Kode Singkatan')
+                            ->required() // Wajib diisi
+                            ->unique(ignoreRecord: true) // Anti duplikat
+                            ->placeholder('Contoh: PCS, KG, ROL')
+                            ->maxLength(10)
+                            ->extraInputAttributes(['style' => 'text-transform:uppercase'])
+                            // 👇 Paksa simpan jadi HURUF BESAR di database
+                            ->dehydrateStateUsing(fn($state) => strtoupper($state)),
+                    ])->columns(2)
             ]);
     }
 
@@ -38,17 +50,28 @@ class UnitResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('name')
-                    ->searchable(),
                 Tables\Columns\TextColumn::make('code')
+                    ->label('Kode')
+                    ->weight('bold')
+                    ->color('success') // Warna hijau biar seger
                     ->searchable(),
-                Tables\Columns\TextColumn::make('created_at')
-                    ->dateTime()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+
+                Tables\Columns\TextColumn::make('name')
+                    ->label('Nama Lengkap')
+                    ->searchable()
+                    ->sortable(),
+
+                // 👇 Info penting buat Supervisor: Dipakai di berapa item?
+                // Pastikan di Model Unit ada function items()
+                Tables\Columns\TextColumn::make('items_count')
+                    ->label('Digunakan Pada')
+                    ->counts('items')
+                    ->suffix(' Item')
+                    ->badge(),
+
                 Tables\Columns\TextColumn::make('updated_at')
-                    ->dateTime()
-                    ->sortable()
+                    ->label('Update Terakhir')
+                    ->dateTime('d M Y')
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
@@ -56,19 +79,13 @@ class UnitResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+                Tables\Actions\DeleteAction::make(),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ]);
-    }
-
-    public static function getRelations(): array
-    {
-        return [
-            //
-        ];
     }
 
     public static function getPages(): array

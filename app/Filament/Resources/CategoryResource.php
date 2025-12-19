@@ -3,45 +3,53 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\CategoryResource\Pages;
-use App\Filament\Resources\CategoryResource\RelationManagers;
 use App\Models\Category;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Filament\Tables\Filters\TernaryFilter;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class CategoryResource extends Resource
 {
     protected static ?string $model = Category::class;
-
     protected static ?string $navigationIcon = 'heroicon-o-tag';
-
     protected static ?string $navigationGroup = 'Master Data';
-    protected static ?int $navigationSort = 3; // Muncul di bawah
+
+    // Urutan 1: Biar muncul paling atas di kelompok Master Data
+    protected static ?int $navigationSort = 1;
 
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('name')
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('code')
-                    ->label('Kode Kategori')
-                    ->placeholder('Contoh: AKB')
-                    ->required()
-                    ->unique(ignoreRecord: true) // Gak boleh ada kode kembar
-                    ->maxLength(5) // Jangan panjang-panjang, max 5 huruf aja (AKB, ATK)
-                    // 1. Biar pas ngetik kelihatannya Huruf Besar (Visual)
-                    ->extraInputAttributes(['style' => 'text-transform:uppercase'])
+                Forms\Components\Section::make('Informasi Kategori')
+                    ->description('Pastikan kode kategori unik dan mudah diingat.')
+                    ->schema([
+                        Forms\Components\TextInput::make('name')
+                            ->label('Nama Kategori')
+                            ->required()
+                            ->unique(ignoreRecord: true) // Biar gak ada "ATK" double
+                            ->maxLength(255)
+                            ->placeholder('Misal: Alat Kebersihan'),
 
-                    // 2. Biar pas masuk database beneran jadi HURUF BESAR (Logic)
-                    ->dehydrateStateUsing(fn(string $state): string => strtoupper($state)),
-                Forms\Components\Toggle::make('is_active')
-                    ->required(),
+                        Forms\Components\TextInput::make('code')
+                            ->label('Kode Kategori')
+                            ->required()
+                            ->unique(ignoreRecord: true)
+                            ->maxLength(5)
+                            ->placeholder('Misal: AKB')
+                            ->extraInputAttributes(['style' => 'text-transform:uppercase'])
+                            ->dehydrateStateUsing(fn(string $state): string => strtoupper($state))
+                            ->helperText('Maksimal 5 karakter. Digunakan sebagai prefix Kode Barang.'),
+
+                        Forms\Components\Toggle::make('is_active')
+                            ->label('Status Aktif')
+                            ->default(true)
+                            ->required(),
+                    ])->columns(2)
             ]);
     }
 
@@ -51,42 +59,48 @@ class CategoryResource extends Resource
             ->columns([
                 Tables\Columns\TextColumn::make('code')
                     ->label('Kode')
-                    ->sortable() // Biar bisa diurutin A-Z
-                    ->searchable() // Biar bisa dicari di kolom search
-                    ->weight('bold') // (Opsional) Biar tebal dikit
-                    ->color('primary'), // (Opsional) Biar warnanya beda
+                    ->weight('bold')
+                    ->color('primary')
+                    ->searchable()
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('name')
-                    ->searchable(),
+                    ->label('Nama Kategori')
+                    ->searchable()
+                    ->sortable(),
+
+                // 👇 FITUR BARU: Biar ketauan kategori ini udah dipake berapa barang
+                Tables\Columns\TextColumn::make('items_count')
+                    ->label('Jumlah Item')
+                    ->counts('items') // Pastikan di Model Category ada function items()
+                    ->badge()
+                    ->color('info'),
+
                 Tables\Columns\IconColumn::make('is_active')
+                    ->label('Status')
                     ->boolean(),
-                Tables\Columns\TextColumn::make('created_at')
-                    ->dateTime()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
+
                 Tables\Columns\TextColumn::make('updated_at')
-                    ->dateTime()
-                    ->sortable()
+                    ->label('Terakhir Update')
+                    ->dateTime('d M Y')
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                TernaryFilter::make('is_active')
+                    ->label('Status Aktif')
+                    ->placeholder('Semua Status')
+                    ->trueLabel('Hanya Aktif')
+                    ->falseLabel('Tidak Aktif'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+                Tables\Actions\DeleteAction::make(), // Tambahin biar bisa hapus satuan
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ]);
-    }
-
-    public static function getRelations(): array
-    {
-        return [
-            //
-        ];
     }
 
     public static function getPages(): array

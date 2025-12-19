@@ -21,7 +21,7 @@ use App\Imports\ItemImport;
 use Maatwebsite\Excel\Facades\Excel;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Storage;
-
+use App\Exports\ItemsExport;
 
 class ItemResource extends Resource
 {
@@ -142,10 +142,7 @@ class ItemResource extends Resource
                     ->prefix('Rp')
                     ->default(0)
                     ->required(),
-                Forms\Components\TextInput::make('avg_cost')
-                    ->required()
-                    ->numeric()
-                    ->default(0.00),
+
                 Forms\Components\Toggle::make('is_active')
                     ->required(),
             ]);
@@ -200,6 +197,14 @@ class ItemResource extends Resource
                 Tables\Actions\EditAction::make(),
             ])
             ->headerActions([
+                Tables\Actions\Action::make('exportData')
+                    ->label('Download Data Stok')
+                    ->icon('heroicon-o-arrow-down-tray')
+                    ->color('info') // Warna Biru
+                    ->action(function () {
+                        return Excel::download(new ItemsExport, 'data_stok_gass_' . now()->format('Y-m-d') . '.xlsx');
+                    }),
+
                 // 1. Tombol Download Template (Baru)
                 Tables\Actions\Action::make('downloadTemplate')
                     ->label('Template Excel')

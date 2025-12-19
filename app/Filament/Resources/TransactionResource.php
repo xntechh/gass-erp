@@ -12,6 +12,7 @@ use Filament\Tables\Table;
 use Filament\Forms\Get;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Auth;
+use Filament\Tables\Columns\TextColumn;
 
 class TransactionResource extends Resource
 {
@@ -52,134 +53,130 @@ class TransactionResource extends Resource
     {
         return $form
             ->schema([
-                // --- BAGIAN HEADER ---
                 Forms\Components\Section::make('Informasi Transaksi')
                     ->schema([
+                        // 1. Nomor Transaksi (Handle by Model)
                         Forms\Components\TextInput::make('code')
                             ->label('No. Transaksi')
-                            ->default('TRX-' . random_int(100000, 999999)) // Auto-generate nomor acak
-                            ->required()
-                            ->readOnly(),
+                            ->placeholder('Otomatis: TRX/IN/2025/...')
+                            ->disabled()
+                            ->dehydrated(),
 
+                        // 2. Tanggal Transaksi
                         Forms\Components\DatePicker::make('trx_date')
                             ->label('Tanggal')
                             ->required()
-                            ->default(now()),
+                            ->default(now())
+                            ->native(false)
+                            ->displayFormat('d/m/Y'),
 
+                        // 3. Tipe Gerakan
                         Forms\Components\Select::make('type')
+                            ->label('Tipe Gerakan')
                             ->options([
-                                'IN' => 'Barang Masuk',
-                                'OUT' => 'Barang Keluar',
+                                'IN' => 'Barang Masuk (+)',
+                                'OUT' => 'Barang Keluar (-)',
                             ])
                             ->required()
                             ->live()
-                            ->afterStateUpdated(fn(Forms\Set $set) => $set('category', null)), // Reset kategori kalau tipe berubah
+                            // Reset kategori kalau tipe berubah biar gak ngaco
+                            ->afterStateUpdated(fn(Forms\Set $set) => $set('category', null)),
 
-                        // 2. KATEGORI TRANSAKSI (Anak - Logic Pro)
+                        // 4. Alasan / Kategori
                         Forms\Components\Select::make('category')
-                            ->label('Kategori / Alasan')
-                            ->options(fn(Forms\Get $get) => match ($get('type')) {
+                            ->label('Alasan / Kategori')
+                            ->options(fn(Get $get) => match ($get('type')) {
                                 'IN' => [
-                                    'PURCHASE' => 'Pembelian Vendor',
-                                    'RETURN_IN' => 'Retur dari User (Barang Balik)',
-                                    'ADJUSTMENT_IN' => 'Koreksi Stok (Tambah)',
+                                    'PURCHASE' => '📦 Pembelian Vendor',
+                                    'RETURN_IN' => '🔄 Retur dari User',
+                                    'ADJUSTMENT_IN' => '⚖️ Koreksi Stok (Tambah)',
                                 ],
                                 'OUT' => [
-                                    'USAGE' => 'Pemakaian User (Normal)',
-                                    'CSR' => 'Sumbangan / CSR',
-                                    'SCRAP' => 'Pemusnahan / Barang Rusak',
-                                    'RETURN_VENDOR' => 'Retur ke Supplier',
+                                    'USAGE' => '🛠️ Pemakaian Normal',
+                                    'CSR' => '🎁 Sumbangan / CSR',
+                                    'SCRAP' => '🗑️ Pemusnahan (Rusak)',
+                                    'RETURN_VENDOR' => '🔙 Retur ke Supplier',
                                 ],
                                 default => [],
                             })
-                            ->live() // Live juga, karena nanti ngaruh ke validasi Dept/Supplier
-                            ->required(),
+                            ->required()
+                            ->live(),
 
-                        Forms\Components\Group::make()
-                            ->schema([
-
-                                // INPUT DEPARTEMEN
-                                Forms\Components\Select::make('department_id')
-                                    ->relationship('department', 'name')
-                                    ->label('Departemen Peminta')
-                                    ->searchable()
-                                    ->preload()
-                                    // Muncul kalau Tipe OUT, TAPI bukan Pemusnahan/Retur Vendor
-                                    ->visible(
-                                        fn(Forms\Get $get) =>
-                                        $get('type') === 'OUT' &&
-                                            in_array($get('category'), ['USAGE', 'CSR'])
-                                    )
-                                    // Wajib kalau USAGE
-                                    ->required(
-                                        fn(Forms\Get $get) =>
-                                        $get('type') === 'OUT' &&
-                                            $get('category') === 'USAGE'
-                                    ),
-                            ])
-                            ->columnSpanFull(),
-
+                        // 5. GUDANG (INI YANG TADI HILANG!)
                         Forms\Components\Select::make('warehouse_id')
                             ->relationship('warehouse', 'name')
-                            ->label('Gudang')
-                            ->required(),
+                            ->label('Gudang Tujuan/Asal')
+                            ->required()
+                            ->searchable()
+                            ->preload()
+                            ->dehydrated(),
 
+                        // 6. DEPARTEMEN (Muncul hanya jika OUT & USAGE/CSR)
+                        Forms\Components\Select::make('department_id')
+                            ->relationship('department', 'name')
+                            ->label('Departemen Peminta')
+                            ->searchable()
+                            ->preload()
+                            ->visible(
+                                fn(Get $get) =>
+                                $get('type') === 'OUT' && in_array($get('category'), ['USAGE', 'CSR'])
+                            )
+                            ->required(
+                                fn(Get $get) =>
+                                $get('type') === 'OUT' && $get('category') === 'USAGE'
+                            ),
+
+                        // 7. STATUS (Hanya Admin yang bisa Approve)
                         Forms\Components\Select::make('status')
                             ->options(function () {
-                                // Opsi standar
-                                $opts = [
-                                    'DRAFT' => 'Draft (Simpan Saja)',
-                                ];
-
-                                // Kalau yang login ADMIN, baru kasih opsi APPROVED
+                                $opts = ['DRAFT' => 'Draft (Simpan Saja)'];
                                 if (Auth::user()->role === 'ADMIN') {
                                     $opts['APPROVED'] = 'Approved (Update Stok)';
                                 }
-
                                 return $opts;
                             })
                             ->default('DRAFT')
                             ->required()
-                            // Tambahan: Kalau bukan Admin, matikan inputnya pas Edit (biar gak bisa utak-atik status)
-                            ->disabled(fn() => Auth::user()->role !== 'ADMIN' && $form->getOperation() === 'edit'),
+                            ->disabled(
+                                fn(string $operation): bool =>
+                                Auth::user()->role !== 'ADMIN' && $operation === 'edit'
+                            )
+                            ->dehydrated(),
 
+                        // 8. KETERANGAN
                         Forms\Components\Textarea::make('description')
                             ->label('Keterangan / Catatan Tambahan')
-                            ->placeholder('Contoh: Barang diambil oleh Pak Budi, atau No. Resi JNE: 12345')
-                            ->rows(3) // Tinggi kotak 3 baris
-                            ->columnSpanFull(), // Biar lebar dari kiri ke kanan
+                            ->rows(3)
+                            ->columnSpanFull(),
                     ])->columns(2),
 
                 // --- BAGIAN DETAIL (REPEATER) ---
                 Forms\Components\Section::make('Daftar Barang')
                     ->schema([
                         Forms\Components\Repeater::make('details')
-                            ->relationship() // Ini magic-nya, otomatis simpan ke tabel details
+                            ->relationship()
                             ->schema([
                                 Forms\Components\Select::make('item_id')
                                     ->relationship('item', 'name')
                                     ->required()
                                     ->searchable()
                                     ->preload()
-                                    ->columnSpan(2), // Lebar kolom
+                                    ->live()
+                                    ->columnSpan(2),
 
                                 Forms\Components\TextInput::make('quantity')
+                                    ->label('Jumlah')
                                     ->numeric()
-                                    ->default(1)
+                                    ->minValue(1)
                                     ->required()
                                     ->columnSpan(1),
-                                Forms\Components\TextInput::make('price')
-                                    ->label('Harga Beli (Satuan)')
-                                    ->prefix('Rp')
-                                    ->numeric()
-                                    // Cuma muncul & wajib kalau Tipe = IN (Barang Masuk)
-                                    ->visible(fn(Forms\Get $get) => $get('../../type') === 'IN')
-                                    ->required(fn(Forms\Get $get) => $get('../../type') === 'IN'),
-                            ])
-                            ->columns(3) // Layout 3 kolom
-                            ->defaultItems(1) // Default ada 1 baris
-                    ])
 
+                                Forms\Components\Placeholder::make('current_stock')
+                                    ->label('Stok Saat Ini')
+                                    ->content(fn($get) => \App\Models\Item::find($get('item_id'))?->stock ?? 0)
+                                    ->visible(fn($get) => $get('../../type') === 'OUT'),
+                            ])->columns(3)
+                    ])
             ]);
     }
 
@@ -188,7 +185,12 @@ class TransactionResource extends Resource
         return $table
             ->defaultSort('created_at', 'desc')
             ->columns([
-                Tables\Columns\TextColumn::make('code')->searchable(),
+                Tables\Columns\TextColumn::make('code')
+                    ->label('No. Transaksi')
+                    ->searchable()
+                    ->copyable()
+                    ->weight('bold')
+                    ->fontFamily('mono'),
                 Tables\Columns\TextColumn::make('trx_date')->date(),
                 Tables\Columns\BadgeColumn::make('type')
                     ->colors([

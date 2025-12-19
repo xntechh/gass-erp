@@ -6,27 +6,25 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use App\Models\InventoryStock;
-use App\Models\Department;
-use App\Models\Warehouse; // Jangan lupa import Warehouse
 use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
+use Illuminate\Support\Facades\DB;
 
 class Transaction extends Model
 {
-    use HasFactory;
-    use LogsActivity;
+    use HasFactory, LogsActivity;
 
     protected $guarded = [];
 
     public function getActivitylogOptions(): LogOptions
     {
         return LogOptions::defaults()
-            ->logOnly(['*'])
+            ->logOnly(['status', 'type', 'category', 'warehouse_id'])
             ->logOnlyDirty()
             ->dontSubmitEmptyLogs();
     }
 
+    // --- RELASI ---
     public function details(): HasMany
     {
         return $this->hasMany(TransactionDetail::class);
@@ -42,66 +40,46 @@ class Transaction extends Model
         return $this->belongsTo(Department::class);
     }
 
-    // 👇👇👇 LOGIC PENTING (DIPERBAIKI) 👇👇👇
+    // --- LOGIC BOOTED ---
     protected static function booted(): void
     {
-        static::updated(function (Transaction $transaction) {
+        // 1. GENERATE NOMOR TRANSAKSI (Solusi Error lo tadi)
+        static::creating(function (Transaction $transaction) {
+            $type = $transaction->type; // IN atau OUT
+            $date = now();
+            $yearMonth = $date->format('Y/m');
 
-            // Cek 1: Apakah status BERUBAH jadi APPROVED?
-            // Kita cek 'getOriginal' biar gak jalan berkali-kali kalau di-save ulang
+            // Cari urutan terakhir di bulan/tahun yang sama
+            $lastTrx = static::where('type', $type)
+                ->whereYear('trx_date', $date->year)
+                ->whereMonth('trx_date', $date->month)
+                ->latest()
+                ->first();
+
+            $lastNumber = $lastTrx ? (int) substr($lastTrx->code, -4) : 0;
+            $newNumber = str_pad($lastNumber + 1, 4, '0', STR_PAD_LEFT);
+
+            $transaction->code = "TRX/{$type}/{$yearMonth}/{$newNumber}";
+        });
+
+        // 2. EKSEKUSI STOK & HARGA SAAT APPROVED
+        static::updated(function (Transaction $transaction) {
+            // Cek apakah baru saja di-approve
             if ($transaction->status === 'APPROVED' && $transaction->getOriginal('status') !== 'APPROVED') {
 
-                // ---------------------------------------------------------
-                // 1. UPDATE STOK FISIK (Jalankan Fungsi Mutasi)
-                // ---------------------------------------------------------
-                $transaction->applyStockMutation();
-                // ^^^ INI PENTING! Stok fisik harus nambah dulu.
+                DB::transaction(function () use ($transaction) {
+                    // A. Jalankan Mutasi Stok Fisik
+                    $transaction->applyStockMutation();
 
-                // ---------------------------------------------------------
-                // 2. UPDATE HARGA RATA-RATA (MOVING AVERAGE) - Khusus IN
-                // ---------------------------------------------------------
-                if ($transaction->type === 'IN') {
-
-                    foreach ($transaction->details as $detail) {
-                        $item = $detail->item;
-
-                        // A. Data Transaksi Baru
-                        $qtyMasuk   = $detail->quantity;
-                        $hargaMasuk = $detail->price; // Harga beli baru
-
-                        // B. Data Stok Saat Ini (Setelah ditambah poin 1 di atas)
-                        $stokSekarang = $item->stocks()->sum('quantity');
-
-                        // C. Hitung Mundur Stok Lama (Sebelum barang ini masuk)
-                        // Rumus: Stok Sekarang - Qty Masuk
-                        $stokLama = $stokSekarang - $qtyMasuk;
-
-                        // Safety: Jangan sampai minus
-                        if ($stokLama < 0) $stokLama = 0;
-
-                        $avgLama = $item->avg_cost;
-
-                        // D. Rumus Moving Average
-                        // (Total Nilai Lama + Total Nilai Baru) / Total Stok Baru
-                        $totalNilaiLama = $stokLama * $avgLama;
-                        $totalNilaiBaru = $qtyMasuk * $hargaMasuk;
-
-                        // Pembagi adalah Stok Sekarang (Total Gabungan)
-                        $totalStok = $stokSekarang;
-
-                        if ($totalStok > 0) {
-                            $newAvg = ($totalNilaiLama + $totalNilaiBaru) / $totalStok;
-
-                            // Update Item (Pakai Quietly biar gak memicu event lain/looping)
-                            $item->updateQuietly(['avg_cost' => $newAvg]);
-                        }
+                    // B. Jalankan Update Harga Rata-rata (Khusus IN)
+                    if ($transaction->type === 'IN') {
+                        $transaction->updateMovingAverage();
                     }
-                }
+                });
             }
         });
     }
 
-    // 👇 Fungsi ini dipanggil otomatis di dalam booted() di atas
     public function applyStockMutation(): void
     {
         foreach ($this->details as $detail) {
@@ -117,6 +95,33 @@ class Transaction extends Model
                 $stock->increment('quantity', $detail->quantity);
             } else {
                 $stock->decrement('quantity', $detail->quantity);
+            }
+        }
+    }
+
+    public function updateMovingAverage(): void
+    {
+        foreach ($this->details as $detail) {
+            $item = $detail->item;
+
+            $qtyMasuk = $detail->quantity;
+            $hargaMasuk = $detail->price;
+
+            // Stok sekarang (sudah ditambah di applyStockMutation)
+            $stokBaru = $item->stocks()->sum('quantity');
+            $stokLama = $stokBaru - $qtyMasuk;
+            if ($stokLama < 0) $stokLama = 0;
+
+            $avgLama = $item->avg_cost;
+
+            // Rumus Moving Average: 
+            // ((StokLama * HargaLama) + (StokBaru * HargaBaru)) / TotalStok
+            $totalNilaiLama = $stokLama * $avgLama;
+            $totalNilaiMasuk = $qtyMasuk * $hargaMasuk;
+
+            if ($stokBaru > 0) {
+                $newAvg = ($totalNilaiLama + $totalNilaiMasuk) / $stokBaru;
+                $item->updateQuietly(['avg_cost' => $newAvg]);
             }
         }
     }

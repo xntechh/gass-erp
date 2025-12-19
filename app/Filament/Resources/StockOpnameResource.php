@@ -10,8 +10,10 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Filament\Forms\Get; // Buat baca inputan live
-use Filament\Forms\Set; // Buat set nilai otomatis
+use Filament\Forms\Components\Placeholder;
+use Filament\Forms\Components\Actions\Action as FormAction;
+use Filament\Forms\Set;
+use Filament\Forms\Get;
 
 class StockOpnameResource extends Resource
 {
@@ -21,6 +23,7 @@ class StockOpnameResource extends Resource
 
     protected static ?string $navigationGroup = 'Aktivitas Gudang';
     protected static ?int $navigationSort = 1; // Biar dia muncul paling atas
+
 
     public static function form(Form $form): Form
     {
@@ -32,44 +35,45 @@ class StockOpnameResource extends Resource
                             ->relationship('warehouse', 'name')
                             ->label('Gudang yang Diaudit')
                             ->required()
-                            ->live() // Wajib live biar bisa trigger fungsi di bawah
+                            ->live()
+                            // 👇 KUNCI: Kalau sudah ada isi di repeater, jangan kasih ganti gudang!
+                            //>disabled(fn(Get $get) => count($get('details') ?? []) > 0)
                             ->afterStateUpdated(function ($state, Set $set) {
-                                // 1. Cek apakah user sudah memilih gudang?
-                                if ($state) {
-                                    // 2. Ambil semua stok yg ada di gudang tersebut dari database
-                                    $stokGudang = InventoryStock::where('warehouse_id', $state)->get();
+                                if (!$state) return;
 
-                                    // 3. Format datanya biar sesuai sama bentuk Repeater
-                                    $dataRepeater = $stokGudang->map(function ($stock) {
-                                        return [
-                                            'item_id' => $stock->item_id,      // ID Barang
-                                            'system_qty' => $stock->quantity,  // Stok Komputer
-                                            'physical_qty' => 0,               // Stok Fisik (Default 0 biar dihitung)
-                                            'description' => null,             // Keterangan kosong
-                                        ];
-                                    })->toArray();
+                                $stokGudang = InventoryStock::where('warehouse_id', $state)->get();
+                                $dataRepeater = $stokGudang->map(fn($stock) => [
+                                    'item_id' => $stock->item_id,
+                                    'system_qty' => $stock->quantity,
+                                    'physical_qty' => $stock->quantity, // Default samain dulu biar gak capek ngetik
+                                    'description' => null,
+                                ])->toArray();
 
-                                    // 4. Masukkan data ke Repeater 'details'
-                                    $set('details', $dataRepeater);
-                                }
-                            }),
+                                $set('details', $dataRepeater);
+                            })
+                            ->helperText('Hapus semua barang di bawah jika ingin mengganti gudang.'),
 
                         Forms\Components\DatePicker::make('opname_date')
+                            ->label('Tanggal Audit')
                             ->required()
                             ->default(now()),
 
                         Forms\Components\TextInput::make('reason')
-                            ->label('Keterangan')
-                            ->placeholder('Contoh: Audit Akhir Tahun'),
+                            ->label('Alasan / Catatan / Nama Audit')
+                            ->placeholder('Contoh: Stock Opname Akhir Tahun 2025')
+                            ->required() // Supervisor harus jelas auditnya buat apa!
+                            ->maxLength(255),
 
                         Forms\Components\Select::make('status')
                             ->options([
-                                'DRAFT' => 'Draft (Hitung Dulu)',
-                                'PROCESSED' => 'Processed (Update Stok Resmi)',
+                                'DRAFT' => 'Draft (Proses Hitung)',
+                                'PROCESSED' => 'Processed (Final & Update Stok)',
                             ])
                             ->default('DRAFT')
-                            ->required(),
-                    ])->columns(2),
+                            ->required()
+                            // 👇 Cegah ganti status manual ke PROCESSED lewat Form jika bukan ADMIN
+                            ->disabled(fn($operation) => $operation === 'edit' && auth()->user()->role !== 'ADMIN'),
+                    ])->columns(3),
 
                 Forms\Components\Section::make('Hasil Hitung Fisik')
                     ->schema([
@@ -79,49 +83,53 @@ class StockOpnameResource extends Resource
                                 Forms\Components\Select::make('item_id')
                                     ->relationship('item', 'name')
                                     ->label('Barang')
-                                    ->required()
-                                    ->searchable()
-                                    ->live() // Aktifkan Live update
-                                    // SAAT BARANG DIPILIH, CARI STOK SISTEM OTOMATIS
-                                    ->afterStateUpdated(function ($state, Set $set, Get $get) {
-                                        $warehouseId = $get('../../warehouse_id');
-                                        if ($warehouseId && $state) {
-                                            $stock = InventoryStock::where('warehouse_id', $warehouseId)
-                                                ->where('item_id', $state)
-                                                ->first();
-                                            // Isi kolom System Qty otomatis
-                                            $set('system_qty', $stock ? $stock->quantity : 0);
-                                        }
-                                    }),
+                                    ->disabled() // Jangan boleh ganti barang kalau narik otomatis
+                                    ->dehydrated() // Tetap kirim ID ke DB
+                                    ->columnSpan(2),
 
                                 Forms\Components\TextInput::make('system_qty')
-                                    ->label('Stok Komputer')
-                                    ->readOnly() // Gak boleh diedit user
-                                    ->required(),
+                                    ->label('Sistem')
+                                    ->numeric()
+                                    ->readOnly(),
 
                                 Forms\Components\TextInput::make('physical_qty')
-                                    ->label('Stok Fisik (Asli)')
+                                    ->label('Fisik')
                                     ->numeric()
-                                    ->required(),
+                                    ->required()
+                                    ->live(onBlur: true), // Update selisih pas user pindah kolom
+
+                                // 👇 FITUR BARU: Biar Auditor liat langsung selisihnya
+                                Placeholder::make('variance_hint')
+                                    ->label('Selisih')
+                                    ->content(function (Get $get) {
+                                        $diff = ($get('physical_qty') ?? 0) - ($get('system_qty') ?? 0);
+                                        $color = $diff < 0 ? 'text-danger-600' : ($diff > 0 ? 'text-success-600' : 'text-gray-500');
+                                        return new \Illuminate\Support\HtmlString("<span class='font-bold {$color}'>{$diff}</span>");
+                                    }),
 
                                 Forms\Components\TextInput::make('description')
-                                    ->label('Alasan Selisih')
-                                    ->placeholder('Cth: Barang Pecah / Expired')
-                                    ->columnSpan(3),
+                                    ->label('Keterangan Selisih')
+                                    ->placeholder('Wajib isi jika ada selisih')
+                                    ->required(fn(Get $get) => $get('physical_qty') != $get('system_qty'))
+                                    ->columnSpanFull(),
                             ])
-                            ->columns(3)
-                            ->defaultItems(1)
+                            ->columns(5)
+                            ->addable(false) // Matikan tambah manual biar gak ngaco dari gudang lain
+                            ->reorderable(false)
                     ])
             ]);
     }
-
     public static function table(Table $table): Table
     {
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('opname_date')->date(),
                 Tables\Columns\TextColumn::make('warehouse.name'),
-                Tables\Columns\TextColumn::make('reason'),
+                Tables\Columns\TextColumn::make('reason')
+                    ->label('Catatan Audit')
+                    ->limit(30) // Potong teks kalau kepanjangan
+                    ->tooltip(fn($state) => $state) // Munculin teks lengkap pas di-hover mouse
+                    ->placeholder('Tidak ada catatan'), // Muncul kalau emang kosong
                 Tables\Columns\BadgeColumn::make('status')
                     ->colors(['warning' => 'DRAFT', 'success' => 'PROCESSED']),
                 Tables\Columns\TextColumn::make('accuracy')

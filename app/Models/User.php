@@ -2,7 +2,6 @@
 
 namespace App\Models;
 
-// 👇 Pastikan use ini ada
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
 use Illuminate\Foundation\Auth\User as Authenticatable;
@@ -10,6 +9,7 @@ use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 // 👇 Pastikan ada "implements FilamentUser"
 class User extends Authenticatable implements FilamentUser
@@ -27,6 +27,11 @@ class User extends Authenticatable implements FilamentUser
         'email_verified_at' => 'datetime',
         'password' => 'hashed',
     ];
+
+    public function department(): BelongsTo
+    {
+        return $this->belongsTo(Department::class);
+    }
 
     // 👇 INI KUNCI PINTU GERBANGNYA (WAJIB ADA) 👇
     public function canAccessPanel(Panel $panel): bool

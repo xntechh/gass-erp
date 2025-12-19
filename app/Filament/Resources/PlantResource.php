@@ -3,37 +3,52 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\PlantResource\Pages;
-use App\Filament\Resources\PlantResource\RelationManagers;
 use App\Models\Plant;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Filament\Tables\Filters\TernaryFilter;
 
 class PlantResource extends Resource
 {
     protected static ?string $model = Plant::class;
-
     protected static ?string $navigationIcon = 'heroicon-o-globe-asia-australia';
-
     protected static ?string $navigationGroup = 'Master Data';
-    protected static ?int $navigationSort = 3; // Muncul di bawah
+
+    // Hirarki Tertinggi: Nomor 1
+    protected static ?int $navigationSort = 1;
 
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('name')
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('code')
-                    ->required()
-                    ->maxLength(255),
-                Forms\Components\Toggle::make('is_active')
-                    ->required(),
+                Forms\Components\Section::make('Informasi Plant / Site')
+                    ->description('Data ini adalah lokasi fisik operasional utama.')
+                    ->schema([
+                        Forms\Components\TextInput::make('name')
+                            ->label('Nama Plant')
+                            ->required()
+                            ->unique(ignoreRecord: true)
+                            ->placeholder('Contoh: SENTUL PLANT')
+                            ->maxLength(255),
+
+                        Forms\Components\TextInput::make('code')
+                            ->label('Kode Plant')
+                            ->required()
+                            ->unique(ignoreRecord: true)
+                            ->maxLength(10)
+                            ->placeholder('Contoh: SNTL')
+                            ->extraInputAttributes(['style' => 'text-transform:uppercase'])
+                            // 👇 Paksa Uppercase sebelum masuk DB
+                            ->dehydrateStateUsing(fn($state) => strtoupper($state)),
+
+                        Forms\Components\Toggle::make('is_active')
+                            ->label('Status Aktif')
+                            ->default(true)
+                            ->required(),
+                    ])->columns(2)
             ]);
     }
 
@@ -41,39 +56,35 @@ class PlantResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('name')
-                    ->searchable(),
                 Tables\Columns\TextColumn::make('code')
+                    ->label('Kode')
+                    ->weight('bold')
+                    ->color('primary')
                     ->searchable(),
+
+                Tables\Columns\TextColumn::make('name')
+                    ->label('Nama Plant')
+                    ->searchable()
+                    ->sortable(),
+
+                // 👇 Info Strategis: Berapa gudang di bawah Plant ini?
+                Tables\Columns\TextColumn::make('warehouses_count')
+                    ->label('Jumlah Gudang')
+                    ->counts('warehouses')
+                    ->badge()
+                    ->color('info'),
+
                 Tables\Columns\IconColumn::make('is_active')
+                    ->label('Aktif')
                     ->boolean(),
-                Tables\Columns\TextColumn::make('created_at')
-                    ->dateTime()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('updated_at')
-                    ->dateTime()
-                    ->sortable()
-                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                //
+                TernaryFilter::make('is_active')->label('Status Aktif'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
-            ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
+                Tables\Actions\DeleteAction::make(),
             ]);
-    }
-
-    public static function getRelations(): array
-    {
-        return [
-            //
-        ];
     }
 
     public static function getPages(): array

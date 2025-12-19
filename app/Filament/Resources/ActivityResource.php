@@ -3,72 +3,47 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\ActivityResource\Pages;
-use App\Filament\Resources\ActivityResource\RelationManagers;
 use App\Models\Activity;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Filament\Infolists;
+use Filament\Infolists\Infolist;
 
 class ActivityResource extends Resource
 {
     protected static ?string $model = Activity::class;
-
     protected static ?string $navigationIcon = 'heroicon-o-finger-print';
-
     protected static ?string $navigationGroup = 'Pengaturan';
-    protected static ?int $navigationSort = 4; // Muncul di bawah
+    protected static ?int $navigationSort = 4;
 
     public static function shouldRegisterNavigation(): bool
     {
-        /** @var \App\Models\User $user */
-        $user = auth()->user();
-
-        return $user->role === 'ADMIN';
+        return auth()->user()->role === 'ADMIN';
     }
 
-    public static function canViewAny(): bool
-    {
-        /** @var \App\Models\User $user */
-        $user = auth()->user();
-
-        return $user->role === 'ADMIN';
-    }
-
+    // FORM BIASANYA DIPAKAI VIEW ACTION KALAU GAK PAKE INFOLIST
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
-                Forms\Components\TextInput::make('log_name')
-                    ->maxLength(255),
-                Forms\Components\Textarea::make('description')
-                    ->required()
-                    ->columnSpanFull(),
-                Forms\Components\TextInput::make('subject_type')
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('event')
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('subject_id')
-                    ->numeric(),
-                Forms\Components\TextInput::make('causer_type')
-                    ->maxLength(255),
-                Forms\Components\TextInput::make('causer_id')
-                    ->numeric(),
-                Forms\Components\TextInput::make('properties'),
-                Forms\Components\TextInput::make('batch_uuid')
-                    ->maxLength(36),
-                Forms\Components\KeyValue::make('properties.attributes')
-                    ->label('Data Baru (New Value)')
-                    ->columnSpanFull(),
+                Forms\Components\Group::make([
+                    Forms\Components\TextInput::make('causer.name')->label('Pelaku'),
+                    Forms\Components\TextInput::make('description')->label('Aktivitas'),
+                    Forms\Components\TextInput::make('created_at')->label('Waktu'),
+                ])->columns(3),
 
-                Forms\Components\KeyValue::make('properties.old')
-                    ->label('Data Lama (Old Value)')
-                    //->color('Red') // Merah biar kelihatan bedanya
-                    ->columnSpanFull()
-                    ->visible(fn($record) => isset($record->properties['old'])),
+                Forms\Components\Section::make('Detail Perubahan')
+                    ->schema([
+                        Forms\Components\KeyValue::make('properties.old')
+                            ->label('Data Lama')
+                            ->columnSpanFull(),
+                        Forms\Components\KeyValue::make('properties.attributes')
+                            ->label('Data Baru')
+                            ->columnSpanFull(),
+                    ])
             ]);
     }
 
@@ -76,13 +51,14 @@ class ActivityResource extends Resource
     {
         return $table
             ->columns([
-                // 1. Siapa Pelakunya
+                Tables\Columns\TextColumn::make('created_at')
+                    ->label('Waktu')
+                    ->dateTime('d/m/Y H:i')
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('causer.name')
-                    ->label('User / Pelaku')
-                    ->icon('heroicon-o-user')
+                    ->label('User')
+                    ->default('System')
                     ->searchable(),
-
-                // 2. Ngapain Dia? (Created/Updated)
                 Tables\Columns\TextColumn::make('description')
                     ->label('Aktivitas')
                     ->badge()
@@ -91,40 +67,24 @@ class ActivityResource extends Resource
                         'warning' => 'updated',
                         'danger' => 'deleted',
                     ]),
-
-                // 3. Objek Apa? (Misal: Transaction #55)
                 Tables\Columns\TextColumn::make('subject_type')
-                    ->label('Tipe Data')
-                    ->formatStateUsing(fn($state) => class_basename($state)), // Biar muncul "Transaction" bukan "App\Models..."
-
+                    ->label('Menu')
+                    ->formatStateUsing(fn($state) => class_basename($state)),
                 Tables\Columns\TextColumn::make('subject_id')
                     ->label('ID Data'),
-
-                // 4. Kapan?
-                Tables\Columns\TextColumn::make('created_at')
-                    ->label('Waktu Kejadian')
-                    ->dateTime('d M Y H:i:s')
-                    ->sortable(),
             ])
-            ->defaultSort('created_at', 'desc') // Yang terbaru paling atas
+            ->defaultSort('created_at', 'desc')
             ->actions([
-                Tables\Actions\ViewAction::make(), // Cuma boleh LIHAT (Mata)
-            ]);
-    }
-
-    public static function getRelations(): array
-    {
-        return [
-            //
-        ];
+                Tables\Actions\ViewAction::make(),
+            ])
+            ->bulkActions([]); // Matikan bulk delete, log jangan dihapus!
     }
 
     public static function getPages(): array
     {
         return [
             'index' => Pages\ListActivities::route('/'),
-            'create' => Pages\CreateActivity::route('/create'),
-            'edit' => Pages\EditActivity::route('/{record}/edit'),
+            // Create dan Edit DIHAPUS demi keamanan data.
         ];
     }
 }
