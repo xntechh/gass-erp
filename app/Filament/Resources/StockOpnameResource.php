@@ -122,6 +122,7 @@ class StockOpnameResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->striped()
             ->columns([
                 Tables\Columns\TextColumn::make('opname_date')->date(),
                 Tables\Columns\TextColumn::make('warehouse.name'),

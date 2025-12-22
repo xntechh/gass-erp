@@ -19,6 +19,15 @@ use Illuminate\Session\Middleware\StartSession;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Filament\View\PanelsRenderHook;
 use Illuminate\Support\Facades\Blade;
+use App\Filament\Widgets\DashboardHeader;
+use App\Filament\Widgets\LatestTransactions;
+use App\Filament\Widgets\LatestLowStockItems;
+use App\Filament\Widgets\StatsOverview;
+use App\Filament\Widgets\TransactionChart;
+use App\Filament\Widgets\WarehouseValueOverview;
+use App\Filament\Widgets\CategoryValueChart;
+use App\Filament\Widgets\RecentActivityWidget;
+use App\Filament\Widgets\WarehouseValuationTable;
 
 class AdminPanelProvider extends PanelProvider
 {
@@ -35,15 +44,30 @@ class AdminPanelProvider extends PanelProvider
             ->brandName('GA Stock System') // Tulisan di Pojok Kiri
             ->favicon(asset('images/favicon.ico')) // (Opsional) Ikon di tab browser
             ->colors([
-                'primary' => Color::Blue,
+                'primary' => Color::Slate,
             ])
+            ->font('Inter')
+            ->sidebarCollapsibleOnDesktop()
             ->discoverResources(in: app_path('Filament/Resources'), for: 'App\\Filament\\Resources')
             ->discoverPages(in: app_path('Filament/Pages'), for: 'App\\Filament\\Pages')
             ->pages([
                 Pages\Dashboard::class,
             ])
-            ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
+            //->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\\Filament\\Widgets')
             ->widgets([
+
+
+                //DashboardHeader::class,
+                //WarehouseValueOverview::class,
+
+                StatsOverview::class,
+                TransactionChart::class,
+                CategoryValueChart::class,
+                LatestLowStockItems::class,
+                //RecentActivityWidget::class,
+                WarehouseValuationTable::class,
+
+                //LatestTransactions::class,
                 //Widgets\AccountWidget::class,
                 //Widgets\FilamentInfoWidget::class,
             ])
@@ -61,6 +85,7 @@ class AdminPanelProvider extends PanelProvider
             ->authMiddleware([
                 Authenticate::class,
             ])
+
             ->renderHook(
                 PanelsRenderHook::FOOTER,
                 fn() => Blade::render(<<<HTML

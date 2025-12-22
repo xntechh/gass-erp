@@ -2,53 +2,57 @@
 
 namespace App\Filament\Widgets;
 
-use App\Models\Transaction;
+use App\Models\Transaction; // Sesuaikan dengan nama model lo
 use Filament\Widgets\ChartWidget;
 use Flowframe\Trend\Trend;
 use Flowframe\Trend\TrendValue;
-use Illuminate\Database\Eloquent\Builder;
 
 class TransactionChart extends ChartWidget
 {
-
-    protected static ?string $heading = 'Tren Keluar Masuk Barang (30 Hari Terakhir)';
-    protected static ?int $sort = 4; // Taruh di bawah kartu statistik
-    protected int | string | array $columnSpan = 'full'; // Lebar penuh biar ganteng
+    protected int | string | array $columnSpan = 1;
+    protected static ?string $heading = 'Tren Pergerakan Barang (7 Hari Terakhir)';
+    protected static ?string $maxHeight = '200px';
 
     protected function getData(): array
     {
-        // 1. Data Barang Masuk (IN)
-        // CARA BENAR: Masukin Query 'where' langsung di dalam kurung query()
-        $dataIn = Trend::query(Transaction::where('type', 'IN'))
-            ->between(now()->subDays(30), now())
-            ->perDay()
-            ->count();
+        $days = collect(range(6, 0))->map(fn($i) => now()->subDays($i)->format('Y-m-d'));
 
-        // 2. Data Barang Keluar (OUT)
-        $dataOut = Trend::query(Transaction::where('type', 'OUT'))
-            ->between(now()->subDays(30), now())
-            ->perDay()
-            ->count();
+        // Kita gunakan Join agar bisa akses 'quantity' dari tabel detail
+        $dataIn = $days->map(
+            fn($date) =>
+            \App\Models\Transaction::where('type', 'IN')
+                ->whereDate('transactions.created_at', $date)
+                ->join('transaction_details', 'transactions.id', '=', 'transaction_details.transaction_id')
+                ->sum('transaction_details.quantity') // Sesuaikan nama kolom detailnya
+        );
+
+        $dataOut = $days->map(
+            fn($date) =>
+            \App\Models\Transaction::where('type', 'OUT')
+                ->whereDate('transactions.created_at', $date)
+                ->join('transaction_details', 'transactions.id', '=', 'transaction_details.transaction_id')
+                ->sum('transaction_details.quantity')
+        );
 
         return [
             'datasets' => [
                 [
-                    'label' => 'Barang Masuk',
-                    'data' => $dataIn->map(fn(TrendValue $value) => $value->aggregate),
+                    'label' => 'Barang Masuk (IN)',
+                    'data' => $dataIn->toArray(),
                     'borderColor' => '#10b981',
                 ],
                 [
-                    'label' => 'Barang Keluar',
-                    'data' => $dataOut->map(fn(TrendValue $value) => $value->aggregate),
-                    'borderColor' => '#f43f5e',
+                    'label' => 'Barang Keluar (OUT)',
+                    'data' => $dataOut->toArray(),
+                    'borderColor' => '#ef4444',
                 ],
             ],
-            'labels' => $dataIn->map(fn(TrendValue $value) => $value->date),
+            'labels' => $days->map(fn($date) => date('d M', strtotime($date)))->toArray(),
         ];
     }
 
     protected function getType(): string
     {
-        return 'line'; // Grafik Garis
+        return 'line'; // Line chart lebih profesional buat liat tren waktu
     }
 }

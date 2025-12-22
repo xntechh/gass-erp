@@ -56,6 +56,7 @@ class CategoryResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->striped()
             ->columns([
                 Tables\Columns\TextColumn::make('code')
                     ->label('Kode')
@@ -85,6 +86,7 @@ class CategoryResource extends Resource
                     ->dateTime('d M Y')
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
+
             ->filters([
                 TernaryFilter::make('is_active')
                     ->label('Status Aktif')

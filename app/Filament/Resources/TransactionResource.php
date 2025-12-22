@@ -184,6 +184,7 @@ class TransactionResource extends Resource
     {
         return $table
             ->defaultSort('created_at', 'desc')
+            ->striped()
             ->columns([
                 Tables\Columns\TextColumn::make('code')
                     ->label('No. Transaksi')

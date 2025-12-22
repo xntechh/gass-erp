@@ -25,59 +25,113 @@ class ActivityResource extends Resource
     }
 
     // FORM BIASANYA DIPAKAI VIEW ACTION KALAU GAK PAKE INFOLIST
-    public static function form(Form $form): Form
+    public static function infolist(Infolist $infolist): Infolist
     {
-        return $form
+        return $infolist
             ->schema([
-                Forms\Components\Group::make([
-                    Forms\Components\TextInput::make('causer.name')->label('Pelaku'),
-                    Forms\Components\TextInput::make('description')->label('Aktivitas'),
-                    Forms\Components\TextInput::make('created_at')->label('Waktu'),
-                ])->columns(3),
-
-                Forms\Components\Section::make('Detail Perubahan')
+                Infolists\Components\Section::make('Metadata Aktivitas')
                     ->schema([
-                        Forms\Components\KeyValue::make('properties.old')
-                            ->label('Data Lama')
-                            ->columnSpanFull(),
-                        Forms\Components\KeyValue::make('properties.attributes')
-                            ->label('Data Baru')
-                            ->columnSpanFull(),
+                        Infolists\Components\TextEntry::make('causer.name')
+                            ->label('Pelaku (User)')
+                            ->weight('bold')
+                            ->default('System/Auto'),
+                        Infolists\Components\TextEntry::make('description')
+                            ->label('Jenis Tindakan')
+                            ->badge()
+                            ->color(fn($state) => match ($state) {
+                                'created' => 'success',
+                                'updated' => 'warning',
+                                'deleted' => 'danger',
+                                default => 'gray',
+                            }),
+                        Infolists\Components\TextEntry::make('created_at')
+                            ->label('Waktu Kejadian')
+                            ->dateTime('d M Y, H:i:s'),
+                    ])->columns(3),
+
+                Infolists\Components\Section::make('Objek Yang Terdampak')
+                    ->schema([
+                        Infolists\Components\TextEntry::make('subject_type')
+                            ->label('Modul/Menu')
+                            ->formatStateUsing(fn($state) => class_basename($state)),
+                        Infolists\Components\TextEntry::make('subject_id')
+                            ->label('ID Data Rekaman'),
+                    ])->columns(2),
+
+                Infolists\Components\Section::make('Log Perubahan Data')
+                    ->description('Perbandingan data sebelum dan sesudah tindakan')
+                    ->schema([
+                        Infolists\Components\Grid::make(2)
+                            ->schema([
+                                Infolists\Components\KeyValueEntry::make('properties.old')
+                                    ->label('Data Lama (Sebelum)')
+                                    ->keyLabel('Kolom')
+                                    ->valueLabel('Nilai'),
+                                Infolists\Components\KeyValueEntry::make('properties.attributes')
+                                    ->label('Data Baru (Sesudah)')
+                                    ->keyLabel('Kolom')
+                                    ->valueLabel('Nilai'),
+                            ]),
                     ])
             ]);
     }
 
+
     public static function table(Table $table): Table
     {
         return $table
+            ->striped()
             ->columns([
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Waktu')
                     ->dateTime('d/m/Y H:i')
-                    ->sortable(),
+                    ->sortable()
+                    ->description(fn($record) => $record->created_at->diffForHumans()),
+
                 Tables\Columns\TextColumn::make('causer.name')
                     ->label('User')
                     ->default('System')
-                    ->searchable(),
+                    ->searchable()
+                    ->weight('bold'),
+
                 Tables\Columns\TextColumn::make('description')
-                    ->label('Aktivitas')
+                    ->label('Aksi')
                     ->badge()
                     ->colors([
                         'success' => 'created',
                         'warning' => 'updated',
                         'danger' => 'deleted',
                     ]),
+
                 Tables\Columns\TextColumn::make('subject_type')
-                    ->label('Menu')
-                    ->formatStateUsing(fn($state) => class_basename($state)),
+                    ->label('Modul')
+                    ->formatStateUsing(fn($state) => match (class_basename($state)) {
+                        'Item' => '📦 Stok Barang',
+                        'StockOpname' => '📋 Audit Opname',
+                        'Warehouse' => '🏢 Gudang',
+                        default => class_basename($state),
+                    }),
+
+                // 👇 TAMBAHAN: Biar tau ID mana yang bermasalah tanpa klik detail
                 Tables\Columns\TextColumn::make('subject_id')
-                    ->label('ID Data'),
+                    ->label('ID Ref')
+                    ->copyable()
+                    ->fontFamily('mono'),
             ])
-            ->defaultSort('created_at', 'desc')
+            ->filters([
+                Tables\Filters\SelectFilter::make('description')
+                    ->label('Filter Aksi')
+                    ->options([
+                        'created' => 'Data Baru',
+                        'updated' => 'Perubahan',
+                        'deleted' => 'Penghapusan',
+                    ]),
+            ])
             ->actions([
-                Tables\Actions\ViewAction::make(),
-            ])
-            ->bulkActions([]); // Matikan bulk delete, log jangan dihapus!
+                Tables\Actions\ViewAction::make()
+                    ->label('Lihat Detail Log')
+                    ->modalHeading('Audit Trail Detail'),
+            ]);
     }
 
     public static function getPages(): array

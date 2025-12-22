@@ -151,6 +151,7 @@ class ItemResource extends Resource
     public static function table(Table $table): Table
     {
         return $table
+            ->striped()
             ->columns([
                 Tables\Columns\TextColumn::make('category.name')
                     ->numeric()
@@ -190,6 +191,7 @@ class ItemResource extends Resource
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
+            ->filtersLayout(Tables\Enums\FiltersLayout::AboveContent)
             ->filters([
                 //
             ])
