@@ -63,6 +63,7 @@ class AdminPanelProvider extends PanelProvider
                 StatsOverview::class,
                 TransactionChart::class,
                 CategoryValueChart::class,
+                LatestTransactions::class,
                 LatestLowStockItems::class,
                 //RecentActivityWidget::class,
                 WarehouseValuationTable::class,
