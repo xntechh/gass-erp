@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Models\Transaction;
+use App\Http\Controllers\TransactionController;
 
 
 Route::get('/', function () {

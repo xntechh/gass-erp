@@ -4,15 +4,17 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Unit extends Model
 {
     use HasFactory;
+
     protected $guarded = [];
 
-    public function items()
+    // Relasi: Satu Unit bisa dipakai Banyak Item
+    public function items(): HasMany
     {
-        // Karena di tabel items ada kolom unit_id
         return $this->hasMany(Item::class);
     }
 }

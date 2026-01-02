@@ -9,11 +9,12 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Filament\Notifications\Notification; // Import Notifikasi
 
 class UnitResource extends Resource
 {
     protected static ?string $model = Unit::class;
-    protected static ?string $navigationIcon = 'heroicon-o-scale';
+    protected static ?string $navigationIcon = 'heroicon-o-scale'; // Ikon Timbangan
     protected static ?string $navigationGroup = 'Master Data';
 
     // Urutan ke-2: Setelah Kategori
@@ -29,18 +30,22 @@ class UnitResource extends Resource
                         Forms\Components\TextInput::make('name')
                             ->label('Nama Satuan')
                             ->required()
-                            ->unique(ignoreRecord: true) // Anti duplikat
+                            ->unique(ignoreRecord: true)
                             ->placeholder('Contoh: Pieces, Kilogram, Roll')
                             ->maxLength(255),
 
                         Forms\Components\TextInput::make('code')
                             ->label('Kode Singkatan')
-                            ->required() // Wajib diisi
-                            ->unique(ignoreRecord: true) // Anti duplikat
-                            ->placeholder('Contoh: PCS, KG, ROL')
+                            ->required()
+                            ->unique(ignoreRecord: true)
+                            ->placeholder('Contoh: PCS')
                             ->maxLength(10)
+                            // Validasi: Hanya Huruf & Angka (Tanpa Spasi)
+                            ->regex('/^[A-Z0-9]+$/')
+                            ->validationMessages([
+                                'regex' => 'Kode hanya boleh Huruf dan Angka (tanpa spasi).',
+                            ])
                             ->extraInputAttributes(['style' => 'text-transform:uppercase'])
-                            // 👇 Paksa simpan jadi HURUF BESAR di database
                             ->dehydrateStateUsing(fn($state) => strtoupper($state)),
                     ])->columns(2)
             ]);
@@ -54,21 +59,23 @@ class UnitResource extends Resource
                 Tables\Columns\TextColumn::make('code')
                     ->label('Kode')
                     ->weight('bold')
-                    ->color('success') // Warna hijau biar seger
-                    ->searchable(),
+                    ->color('success')
+                    ->searchable()
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('name')
                     ->label('Nama Lengkap')
                     ->searchable()
                     ->sortable(),
 
-                // 👇 Info penting buat Supervisor: Dipakai di berapa item?
-                // Pastikan di Model Unit ada function items()
+                // Info Penggunaan
                 Tables\Columns\TextColumn::make('items_count')
                     ->label('Digunakan Pada')
-                    ->counts('items')
+                    ->counts('items') // Pastikan relasi items() ada di Model Unit
                     ->suffix(' Item')
-                    ->badge(),
+                    ->badge()
+                    ->color(fn($state) => $state > 0 ? 'info' : 'gray')
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('updated_at')
                     ->label('Update Terakhir')
@@ -80,7 +87,20 @@ class UnitResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+
+                // PROTEKSI DELETE: Jangan hapus Satuan jika masih dipakai Barang
+                Tables\Actions\DeleteAction::make()
+                    ->before(function (Tables\Actions\DeleteAction $action, Unit $record) {
+                        if ($record->items()->exists()) {
+                            Notification::make()
+                                ->danger()
+                                ->title('Gagal Menghapus')
+                                ->body('Satuan ini sedang digunakan oleh Barang lain. Ganti satuan barang dulu sebelum menghapus.')
+                                ->send();
+
+                            $action->cancel();
+                        }
+                    }),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
@@ -92,9 +112,9 @@ class UnitResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListUnits::route('/'),
+            'index'  => Pages\ListUnits::route('/'),
             'create' => Pages\CreateUnit::route('/create'),
-            'edit' => Pages\EditUnit::route('/{record}/edit'),
+            'edit'   => Pages\EditUnit::route('/{record}/edit'),
         ];
     }
 }

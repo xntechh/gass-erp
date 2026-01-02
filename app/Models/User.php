@@ -16,6 +16,14 @@ class User extends Authenticatable implements FilamentUser
 {
     use HasFactory, Notifiable, LogsActivity;
 
+    protected $fillable = [
+        'name',
+        'email',
+        'password',
+        'role',          // <--- Pastikan ini ada
+        'department_id', // <--- Pastikan ini ada
+    ];
+
     protected $guarded = [];
 
     protected $hidden = [

@@ -10,6 +10,7 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Tables\Filters\TernaryFilter;
+use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Builder;
 
 class CategoryResource extends Resource
@@ -31,7 +32,7 @@ class CategoryResource extends Resource
                         Forms\Components\TextInput::make('name')
                             ->label('Nama Kategori')
                             ->required()
-                            ->unique(ignoreRecord: true) // Biar gak ada "ATK" double
+                            ->unique(ignoreRecord: true)
                             ->maxLength(255)
                             ->placeholder('Misal: Alat Kebersihan'),
 
@@ -41,7 +42,14 @@ class CategoryResource extends Resource
                             ->unique(ignoreRecord: true)
                             ->maxLength(5)
                             ->placeholder('Misal: AKB')
+                            // Validasi: Hanya Huruf Kapital & Angka, tanpa spasi
+                            ->regex('/^[A-Z0-9]+$/')
+                            ->validationMessages([
+                                'regex' => 'Kode hanya boleh Huruf Kapital dan Angka (tanpa spasi).',
+                            ])
+                            // UX: Visual jadi huruf besar
                             ->extraInputAttributes(['style' => 'text-transform:uppercase'])
+                            // Backend: Simpan sebagai huruf besar
                             ->dehydrateStateUsing(fn(string $state): string => strtoupper($state))
                             ->helperText('Maksimal 5 karakter. Digunakan sebagai prefix Kode Barang.'),
 
@@ -70,12 +78,13 @@ class CategoryResource extends Resource
                     ->searchable()
                     ->sortable(),
 
-                // 👇 FITUR BARU: Biar ketauan kategori ini udah dipake berapa barang
+                // Kolom Jumlah Item
                 Tables\Columns\TextColumn::make('items_count')
                     ->label('Jumlah Item')
-                    ->counts('items') // Pastikan di Model Category ada function items()
+                    ->counts('items') // Pastikan relasi 'items' ada di Model Category
                     ->badge()
-                    ->color('info'),
+                    ->color(fn($state) => $state > 0 ? 'info' : 'gray')
+                    ->sortable(),
 
                 Tables\Columns\IconColumn::make('is_active')
                     ->label('Status')
@@ -86,7 +95,6 @@ class CategoryResource extends Resource
                     ->dateTime('d M Y')
                     ->toggleable(isToggledHiddenByDefault: true),
             ])
-
             ->filters([
                 TernaryFilter::make('is_active')
                     ->label('Status Aktif')
@@ -96,7 +104,21 @@ class CategoryResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(), // Tambahin biar bisa hapus satuan
+
+                // PROTEKSI DELETE: Jangan hapus jika masih ada barang
+                Tables\Actions\DeleteAction::make()
+                    ->before(function (Tables\Actions\DeleteAction $action, Category $record) {
+                        if ($record->items()->count() > 0) {
+                            Notification::make()
+                                ->danger()
+                                ->title('Gagal Menghapus')
+                                ->body('Kategori ini masih digunakan oleh barang lain. Hapus/pindahkan barangnya terlebih dahulu.')
+                                ->send();
+
+                            // Batalkan proses hapus
+                            $action->cancel();
+                        }
+                    }),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
@@ -108,9 +130,9 @@ class CategoryResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListCategories::route('/'),
+            'index'  => Pages\ListCategories::route('/'),
             'create' => Pages\CreateCategory::route('/create'),
-            'edit' => Pages\EditCategory::route('/{record}/edit'),
+            'edit'   => Pages\EditCategory::route('/{record}/edit'),
         ];
     }
 }

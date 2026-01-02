@@ -4,15 +4,17 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany; // Import ini
 
 class Department extends Model
 {
     use HasFactory;
+
     protected $guarded = [];
 
-    public function users()
+    // Relasi: Satu Departemen punya Banyak User
+    public function users(): HasMany
     {
-        // Ini artinya: Satu Departemen punya banyak User
         return $this->hasMany(User::class);
     }
 }

@@ -10,10 +10,8 @@ use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
 use Filament\Tables\Filters\SelectFilter;
-use Filament\Forms\Components\Section;
-use Filament\Forms\Components\Select;
-use Filament\Forms\Components\TextInput;
-
+use Filament\Tables\Filters\Filter;
+use Illuminate\Database\Eloquent\Builder;
 
 class InventoryStockResource extends Resource
 {
@@ -23,67 +21,83 @@ class InventoryStockResource extends Resource
     protected static ?string $navigationGroup = 'Monitoring Stok';
     protected static ?int $navigationSort = 1;
 
+    // 👇 PENTING: Matikan Create & Delete agar stok murni hasil kalkulasi sistem
+    public static function canCreate(): bool
+    {
+        return false;
+    }
+
+    public static function canDelete(mixed $record): bool
+    {
+        return false;
+    }
 
     public static function form(Form $form): Form
     {
         return $form
             ->schema([
-                Section::make('Informasi Stok (Locked)')
-                    ->description('Data ini dihitung otomatis. Tidak bisa diubah manual.')
+                Forms\Components\Section::make('Informasi Stok (Locked)')
+                    ->description('Data ini dihitung otomatis oleh sistem dan tidak dapat diubah manual.')
                     ->schema([
-                        Select::make('warehouse_id')
+                        Forms\Components\Select::make('warehouse_id')
                             ->relationship('warehouse', 'name')
                             ->label('Gudang')
-                            ->disabled(),
+                            ->disabled() // Terkunci
+                            ->dehydrated(false), // Gak usah dikirim lagi ke DB saat save
 
-                        Select::make('item_id')
+                        Forms\Components\Select::make('item_id')
                             ->relationship('item', 'name')
                             ->label('Barang')
-                            ->disabled(),
+                            ->disabled()
+                            ->dehydrated(false),
 
-                        TextInput::make('quantity')
-                            ->label('Sisa Stok')
-                            ->disabled(),
+                        Forms\Components\TextInput::make('quantity')
+                            ->label('Sisa Stok Saat Ini')
+                            ->numeric()
+                            ->disabled()
+                            ->dehydrated(false),
                     ])->columns(3),
 
-                Section::make('Manajemen Lokasi')
+                Forms\Components\Section::make('Manajemen Lokasi')
+                    ->description('Anda hanya diperbolehkan mengubah lokasi penyimpanan.')
                     ->schema([
-                        TextInput::make('rack_location')
+                        Forms\Components\TextInput::make('rack_location')
                             ->label('Lokasi Rak')
-                            ->placeholder('Contoh: RAK-A1')
-                            ->required(),
+                            ->placeholder('Contoh: RAK-A-01')
+                            ->helperText('Update lokasi jika barang dipindahkan.')
+                            ->required()
+                            ->maxLength(255),
                     ])
             ]);
-    }
-
-    // 👇 LOGIC PENTING: Matikan tombol "New" agar tidak ada stok ghaib
-    public static function canCreate(): bool
-    {
-        return false;
     }
 
     public static function table(Table $table): Table
     {
         return $table
             ->striped()
+            // 👇 OPTIMASI: Eager Load relasi biar loading cepat (Anti Lemot)
+            ->modifyQueryUsing(fn(Builder $query) => $query->with(['item.unit', 'warehouse']))
             ->columns([
                 Tables\Columns\TextColumn::make('warehouse.name')
                     ->label('Gudang')
-                    ->sortable(),
+                    ->sortable()
+                    ->searchable(),
 
                 Tables\Columns\TextColumn::make('item.name')
                     ->label('Nama Barang')
-                    ->description(fn(InventoryStock $record) => $record->item->code)
-                    ->searchable(),
+                    ->description(fn(InventoryStock $record) => $record->item->code ?? '-')
+                    ->searchable()
+                    ->sortable(),
 
-                // 👇 INFO STOK: Berwarna MERAH kalau di bawah Min Stock
                 Tables\Columns\TextColumn::make('quantity')
-                    ->label('Stok')
+                    ->label('Sisa Stok')
+                    ->numeric() // Biar ada koma/titik ribuan (1,000)
                     ->weight('bold')
-                    ->suffix(fn(InventoryStock $record) => " " . $record->item->unit->name)
+                    ->suffix(fn(InventoryStock $record) => " " . ($record->item->unit->name ?? ''))
+                    // Logic Warna: Merah jika <= Min Stock
                     ->color(
                         fn(InventoryStock $record) =>
-                        $record->quantity <= $record->item->min_stock ? 'danger' : 'success'
+                        $record->quantity <= ($record->item->min_stock ?? 0) ? 'danger' : 'success'
                     )
                     ->sortable(),
 
@@ -91,24 +105,37 @@ class InventoryStockResource extends Resource
                     ->label('Lokasi Rak')
                     ->badge()
                     ->color('gray')
-                    ->searchable(),
+                    ->icon('heroicon-o-map-pin')
+                    ->searchable()
+                    ->placeholder('Belum set'),
+
+                Tables\Columns\TextColumn::make('updated_at')
+                    ->label('Update Terakhir')
+                    ->dateTime('d M Y H:i')
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
-                // 👇 FILTER: Biar lo gampang liat stok per Gudang
                 SelectFilter::make('warehouse_id')
                     ->label('Filter Gudang')
                     ->relationship('warehouse', 'name'),
 
-                // 👇 FILTER: Biar lo gampang liat barang yang kritis aja
-                Tables\Filters\Filter::make('low_stock')
-                    ->label('Stok Kritis')
-                    ->query(fn($query) => $query->whereRaw('quantity <= (SELECT min_stock FROM items WHERE items.id = inventory_stocks.item_id)')),
+                // Filter Stok Kritis (SQL Raw)
+                Filter::make('low_stock')
+                    ->label('Hanya Stok Menipis')
+                    ->toggle()
+                    ->query(
+                        fn(Builder $query) =>
+                        $query->whereRaw('quantity <= (SELECT min_stock FROM items WHERE items.id = inventory_stocks.item_id)')
+                    ),
             ])
             ->actions([
-                Tables\Actions\EditAction::make()->label('Update Rak'),
+                Tables\Actions\EditAction::make()
+                    ->label('Pindah Rak')
+                    ->icon('heroicon-o-pencil')
+                    ->modalWidth('lg'),
             ])
             ->bulkActions([
-                // Delete Bulk dihapus demi keamanan data audit
+                // Kosongkan Bulk Actions demi keamanan
             ]);
     }
 
@@ -116,7 +143,7 @@ class InventoryStockResource extends Resource
     {
         return [
             'index' => Pages\ListInventoryStocks::route('/'),
-            'edit' => Pages\EditInventoryStock::route('/{record}/edit'),
+            'edit'  => Pages\EditInventoryStock::route('/{record}/edit'),
         ];
     }
 }

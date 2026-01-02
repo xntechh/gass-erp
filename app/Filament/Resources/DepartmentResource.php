@@ -9,6 +9,7 @@ use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
+use Filament\Notifications\Notification; // Import Notifikasi
 
 class DepartmentResource extends Resource
 {
@@ -29,19 +30,25 @@ class DepartmentResource extends Resource
                         Forms\Components\TextInput::make('name')
                             ->label('Nama Departemen')
                             ->required()
-                            ->unique(ignoreRecord: true) // Anti ganda
-                            ->placeholder('Contoh: Human Resources & General Affairs')
-                            ->maxLength(255),
+                            ->unique(ignoreRecord: true)
+                            ->maxLength(255)
+                            ->placeholder('Contoh: Human Resources & General Affairs'),
 
                         Forms\Components\TextInput::make('code')
                             ->label('Kode Singkatan')
                             ->required()
-                            ->unique(ignoreRecord: true) // Anti ganda
-                            ->placeholder('Contoh: HRGA')
+                            ->unique(ignoreRecord: true)
                             ->maxLength(10)
+                            ->placeholder('Contoh: HRGA')
+                            // Validasi: Hanya Huruf Besar & Angka (Tanpa Spasi)
+                            ->regex('/^[A-Z0-9]+$/')
+                            ->validationMessages([
+                                'regex' => 'Kode hanya boleh Huruf Kapital dan Angka (tanpa spasi/simbol).',
+                            ])
+                            // UX: Visual jadi huruf besar
                             ->extraInputAttributes(['style' => 'text-transform:uppercase'])
-                            // 👇 Paksa simpan sebagai HURUF BESAR
-                            ->dehydrateStateUsing(fn($state) => strtoupper($state)),
+                            // Backend: Simpan sebagai huruf besar
+                            ->dehydrateStateUsing(fn(string $state): string => strtoupper($state)),
                     ])->columns(2)
             ]);
     }
@@ -54,12 +61,21 @@ class DepartmentResource extends Resource
                 Tables\Columns\TextColumn::make('code')
                     ->label('Kode')
                     ->weight('bold')
-                    ->color('warning') // Biar eye-catching
-                    ->searchable(),
+                    ->color('warning')
+                    ->searchable()
+                    ->sortable(),
 
                 Tables\Columns\TextColumn::make('name')
                     ->label('Nama Departemen')
                     ->searchable()
+                    ->sortable(),
+
+                // Opsional: Tampilkan jumlah karyawan jika relasi sudah ada
+                Tables\Columns\TextColumn::make('users_count')
+                    ->label('Jml Karyawan')
+                    ->counts('users') // Pastikan ada relasi 'users' di Model Department
+                    ->badge()
+                    ->color('gray')
                     ->sortable(),
 
                 Tables\Columns\TextColumn::make('updated_at')
@@ -72,7 +88,21 @@ class DepartmentResource extends Resource
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
-                Tables\Actions\DeleteAction::make(),
+
+                // PROTEKSI DELETE: Cek apakah ada karyawan di departemen ini?
+                Tables\Actions\DeleteAction::make()
+                    ->before(function (Tables\Actions\DeleteAction $action, Department $record) {
+                        // Pastikan relasi 'users' sudah dibuat di Model Department
+                        if ($record->users()->exists()) {
+                            Notification::make()
+                                ->danger()
+                                ->title('Gagal Menghapus')
+                                ->body('Departemen ini masih memiliki Karyawan aktif. Pindahkan karyawan terlebih dahulu.')
+                                ->send();
+
+                            $action->cancel();
+                        }
+                    }),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
@@ -84,9 +114,9 @@ class DepartmentResource extends Resource
     public static function getPages(): array
     {
         return [
-            'index' => Pages\ListDepartments::route('/'),
+            'index'  => Pages\ListDepartments::route('/'),
             'create' => Pages\CreateDepartment::route('/create'),
-            'edit' => Pages\EditDepartment::route('/{record}/edit'),
+            'edit'   => Pages\EditDepartment::route('/{record}/edit'),
         ];
     }
 }
