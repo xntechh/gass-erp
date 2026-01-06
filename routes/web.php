@@ -2,28 +2,17 @@
 
 use Illuminate\Support\Facades\Route;
 use App\Models\Transaction;
-use App\Http\Controllers\TransactionController;
-
 
 Route::get('/', function () {
-    return redirect('/admin'); // <--- LEMPAR LANGSUNG KE ADMIN
+    return redirect('/admin');
 });
 
-use App\Http\Controllers\PdfController;
-
-// Rute khusus cetak PDF
-// Middleware 'auth' artinya harus login dulu baru bisa cetak
-Route::get('/admin/transactions/{record}/print', [PdfController::class, 'print'])
-    ->name('pdf.print')
-    ->middleware('auth');
-
-// Route khusus buat nge-print
+// PRINT (HTML) - pakai template lama: resources/views/transaction/print.blade.php
 Route::get('/admin/transactions/{record}/print', function (Transaction $record) {
-    // Pastikan user login (Security check)
-    if (!auth()->check()) {
-        abort(403);
-    }
+    // load relasi biar tabel barang & gudang kebaca
+    $record->loadMissing(['warehouse.plant', 'details.item.unit', 'department']);
 
-    // Tampilkan surat yang tadi kita desain
     return view('transaction.print', ['transaction' => $record]);
-})->name('transactions.print');
+})
+    ->name('transactions.print')
+    ->middleware(['auth', 'can:view,record']);

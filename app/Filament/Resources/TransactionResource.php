@@ -110,14 +110,19 @@ class TransactionResource extends Resource
                             ->required(fn(Get $get) => $get('type') === 'OUT' && $get('category') === 'USAGE'),
 
                         Forms\Components\Select::make('status')
-                            ->options([
-                                'DRAFT'    => 'Draft (Simpan Saja)',
-                                'APPROVED' => 'Approved (Update Stok)',
-                            ])
+                            ->options(
+                                fn() => (auth()->user()?->role === 'ADMIN')
+                                    ? [
+                                        'DRAFT'    => 'Draft (Simpan Saja)',
+                                        'APPROVED' => 'Approved (Update Stok)',
+                                    ]
+                                    : [
+                                        'DRAFT' => 'Draft (Simpan Saja)',
+                                    ]
+                            )
                             ->default('DRAFT')
                             ->required()
-                            // Proteksi: Hanya Admin yang bisa ganti ke Approved saat Edit
-                            ->disabled(fn(string $operation) => $operation === 'edit' && auth()->user()->role !== 'ADMIN'),
+                            ->disabled(fn() => auth()->user()?->role !== 'ADMIN'),
 
                         Forms\Components\Textarea::make('description')
                             ->label('Keterangan')
@@ -145,8 +150,32 @@ class TransactionResource extends Resource
                                     ->label('Qty')
                                     ->numeric()
                                     ->minValue(1)
+                                    ->maxValue(function (Get $get) {
+                                        // Cuma validasi max kalau OUT
+                                        if ($get('../../type') !== 'OUT') return null;
+
+                                        $warehouseId = $get('../../warehouse_id');
+                                        $itemId      = $get('item_id');
+
+                                        if (! $warehouseId || ! $itemId) return null;
+
+                                        return InventoryStock::where('warehouse_id', $warehouseId)
+                                            ->where('item_id', $itemId)
+                                            ->value('quantity') ?? 0;
+                                    })
                                     ->required()
                                     ->columnSpan(1),
+
+                                Forms\Components\TextInput::make('price')
+                                    ->label('Harga')
+                                    ->numeric()
+                                    ->minValue(0)
+                                    ->default(0)
+                                    ->prefix('Rp')
+                                    ->visible(fn(Get $get) => $get('../../type') === 'IN')
+                                    ->required(fn(Get $get) => $get('../../type') === 'IN')
+                                    ->columnSpan(1),
+
 
                                 // 👇 LOGIC BARU: Cek Stok per Gudang
                                 Forms\Components\Placeholder::make('current_stock_info')
@@ -170,7 +199,7 @@ class TransactionResource extends Resource
                                     ->visible(fn(Get $get) => $get('../../type') === 'OUT')
                                     ->columnSpan(1),
                             ])
-                            ->columns(4) // Ubah jadi 4 kolom biar rapi
+                            ->columns(5) // Ubah jadi 5 kolom biar rapi
                             ->addActionLabel('Tambah Barang')
                     ])
             ]);

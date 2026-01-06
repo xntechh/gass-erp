@@ -4,23 +4,23 @@ namespace App\Http\Controllers;
 
 use App\Models\Transaction;
 use Barryvdh\DomPDF\Facade\Pdf;
-use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 class PdfController extends Controller
 {
     public function print(Transaction $record)
     {
-        // 1. Ambil data transaksi berdasarkan ID
-        // (Laravel otomatis cari data krn kita pake Type Hinting 'Transaction $record')
+        // Route sudah pakai middleware can:view,record
+        // Kalau mau double check, pastikan Controller sudah pakai AuthorizesRequests
+        // $this->authorize('view', $record);
 
-        // 2. Load View HTML yg kita buat tadi, kirim datanya
-        $pdf = Pdf::loadView('pdf.surat_jalan', ['record' => $record]);
+        $pdf = Pdf::loadView('pdf.surat_jalan', ['record' => $record])
+            ->setPaper('a4', 'portrait');
 
-        // 3. Atur ukuran kertas (A4 Potrait)
-        $pdf->setPaper('a4', 'portrait');
+        // code contoh: TRX/IN/2025/12/0001 -> gak boleh dipakai mentah jadi filename
+        $safeCode = Str::slug((string) $record->code, '-'); // TRX-IN-2025-12-0001
+        $filename = 'Surat_Jalan_' . $safeCode . '.pdf';
 
-        // 4. Tampilkan di browser (stream)
-        // Kalau mau langsung download, ganti ->stream() jadi ->download()
-        return $pdf->stream('Surat_Jalan_' . $record->code . '.pdf');
+        return $pdf->stream($filename);
     }
 }

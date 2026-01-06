@@ -9,6 +9,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Spatie\Activitylog\Traits\LogsActivity;
 use Spatie\Activitylog\LogOptions;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Carbon;
+use Illuminate\Database\QueryException;
 
 class Transaction extends Model
 {
@@ -20,8 +22,7 @@ class Transaction extends Model
     {
         return LogOptions::defaults()
             ->logOnly(['status', 'type', 'category', 'warehouse_id'])
-            ->logOnlyDirty()
-            ->dontSubmitEmptyLogs();
+            ->logOnlyDirty();
     }
 
     // --- RELASI ---
@@ -43,10 +44,10 @@ class Transaction extends Model
     // --- LOGIC BOOTED ---
     protected static function booted(): void
     {
-        // 1. GENERATE NOMOR TRANSAKSI (Solusi Error lo tadi)
+        // 1. GENERATE NOMOR TRANSAKSI (pakai trx_date, bukan now())
         static::creating(function (Transaction $transaction) {
             $type = $transaction->type; // IN atau OUT
-            $date = now();
+            $date = $transaction->trx_date ? Carbon::parse($transaction->trx_date) : now();
             $yearMonth = $date->format('Y/m');
 
             // Cari urutan terakhir di bulan/tahun yang sama
@@ -62,16 +63,30 @@ class Transaction extends Model
             $transaction->code = "TRX/{$type}/{$yearMonth}/{$newNumber}";
         });
 
-        // 2. EKSEKUSI STOK & HARGA SAAT APPROVED
+        // 1b. Proteksi: STAFF tidak boleh set status APPROVED (anti-bypass)
+        static::saving(function (Transaction $transaction) {
+            $user = auth()->user();
+            if ($user && ($user->role ?? null) !== 'ADMIN' && $transaction->status === 'APPROVED') {
+                $transaction->status = 'DRAFT';
+            }
+        });
+
+        // 1c. Proteksi: Transaksi APPROVED tidak boleh dihapus (stok sudah berubah)
+        static::deleting(function (Transaction $transaction) {
+            if ($transaction->status === 'APPROVED') {
+                throw new \RuntimeException('Transaksi APPROVED tidak boleh dihapus.');
+            }
+        });
+
+        // 2. EKSEKUSI STOK & HARGA SAAT APPROVED (transisi DRAFT -> APPROVED)
         static::updated(function (Transaction $transaction) {
             // Cek apakah baru saja di-approve
             if ($transaction->status === 'APPROVED' && $transaction->getOriginal('status') !== 'APPROVED') {
-
                 DB::transaction(function () use ($transaction) {
-                    // A. Jalankan Mutasi Stok Fisik
+                    // A. Mutasi stok fisik
                     $transaction->applyStockMutation();
 
-                    // B. Jalankan Update Harga Rata-rata (Khusus IN)
+                    // B. Update Moving Average (khusus IN)
                     if ($transaction->type === 'IN') {
                         $transaction->updateMovingAverage();
                     }
@@ -82,21 +97,48 @@ class Transaction extends Model
 
     public function applyStockMutation(): void
     {
-        foreach ($this->details as $detail) {
-            $stock = InventoryStock::firstOrCreate(
-                [
-                    'warehouse_id' => $this->warehouse_id,
-                    'item_id' => $detail->item_id,
-                ],
-                ['quantity' => 0]
-            );
+        // IMPORTANT: Mutasi stok harus aman dari race-condition + stok minus.
+        $this->loadMissing(['details.item']);
 
-            if ($this->type === 'IN') {
-                $stock->increment('quantity', $detail->quantity);
-            } else {
+        DB::transaction(function () {
+            foreach ($this->details as $detail) {
+                // Lock baris stok (kalau ada) supaya tidak tabrakan antar request
+                $stock = InventoryStock::where('warehouse_id', $this->warehouse_id)
+                    ->where('item_id', $detail->item_id)
+                    ->lockForUpdate()
+                    ->first();
+
+                // Kalau belum ada stok row-nya, bikin dulu (dan handle kemungkinan race karena unique index)
+                if (! $stock) {
+                    try {
+                        $stock = InventoryStock::create([
+                            'warehouse_id' => $this->warehouse_id,
+                            'item_id'      => $detail->item_id,
+                            'quantity'     => 0,
+                        ]);
+                    } catch (QueryException $e) {
+                        // Kemungkinan besar karena ada request lain yang duluan create.
+                        $stock = InventoryStock::where('warehouse_id', $this->warehouse_id)
+                            ->where('item_id', $detail->item_id)
+                            ->lockForUpdate()
+                            ->first();
+                    }
+                }
+
+                if ($this->type === 'IN') {
+                    $stock->increment('quantity', $detail->quantity);
+                    continue;
+                }
+
+                // OUT: blok stok minus
+                if ($stock->quantity < $detail->quantity) {
+                    $name = $detail->item?->name ?? ("Item ID " . $detail->item_id);
+                    throw new \RuntimeException("Stok tidak cukup untuk: {$name}. Tersedia {$stock->quantity}, minta {$detail->quantity}.");
+                }
+
                 $stock->decrement('quantity', $detail->quantity);
             }
-        }
+        });
     }
 
     public function updateMovingAverage(): void
@@ -114,8 +156,7 @@ class Transaction extends Model
 
             $avgLama = $item->avg_cost;
 
-            // Rumus Moving Average: 
-            // ((StokLama * HargaLama) + (StokBaru * HargaBaru)) / TotalStok
+            // ((StokLama * HargaLama) + (StokMasuk * HargaMasuk)) / TotalStok
             $totalNilaiLama = $stokLama * $avgLama;
             $totalNilaiMasuk = $qtyMasuk * $hargaMasuk;
 
