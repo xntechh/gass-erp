@@ -107,9 +107,17 @@
     <div class="info-container">
         <div class="info-item">
             <span class="info-label">Tanggal Transaksi</span>
-            <span class="info-value">{{ $transaction->created_at->format('d F Y') }}</span>
+            @php
+                $trxDate = $transaction->trx_date
+                    ? \Illuminate\Support\Carbon::parse($transaction->trx_date)
+                    : null;
+                $trxTime = $trxDate && $trxDate->format('H:i') !== '00:00'
+                    ? $trxDate->format('H:i')
+                    : $transaction->created_at->format('H:i');
+            @endphp
+            <span class="info-value">{{ $trxDate?->format('d F Y') }}</span>
             <br>
-            <small style="color: #666">Jam: {{ $transaction->created_at->format('H:i') }} WIB</small>
+            <small style="color: #666">Jam: {{ $trxTime }} WIB</small>
         </div>
 
         <div class="info-item">
