@@ -264,7 +264,7 @@ class TransactionResource extends Resource
                     ->hidden(fn(Transaction $record) => $record->status === 'APPROVED'),
 
                 Tables\Actions\DeleteAction::make()
-                    ->hidden(fn(Transaction $record) => $record->status === 'APPROVED'),
+                    ->hidden(fn(Transaction $record) => $record->status === 'APPROVED' && (auth()->user()->role ?? null) !== 'ADMIN'),
 
                 // Tombol Print
                 Tables\Actions\Action::make('print')
@@ -279,16 +279,18 @@ class TransactionResource extends Resource
                     // Custom Bulk Delete dengan Validasi
                     Tables\Actions\DeleteBulkAction::make()
                         ->action(function (Collection $records) {
+                            $user = auth()->user();
+                            $isAdmin = ($user->role ?? null) === 'ADMIN';
                             $deletedCount = 0;
                             foreach ($records as $record) {
-                                if ($record->status === 'APPROVED') {
+                                if ($record->status === 'APPROVED' && ! $isAdmin) {
                                     continue; // Skip yang sudah approved
                                 }
                                 $record->delete();
                                 $deletedCount++;
                             }
 
-                            if ($deletedCount < $records->count()) {
+                            if ($deletedCount < $records->count() && ! $isAdmin) {
                                 Notification::make()
                                     ->warning()
                                     ->title('Sebagian Data Tidak Dihapus')

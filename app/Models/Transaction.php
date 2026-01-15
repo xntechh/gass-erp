@@ -73,7 +73,8 @@ class Transaction extends Model
 
         // 1c. Proteksi: Transaksi APPROVED tidak boleh dihapus (stok sudah berubah)
         static::deleting(function (Transaction $transaction) {
-            if ($transaction->status === 'APPROVED') {
+            $user = auth()->user();
+            if ($transaction->status === 'APPROVED' && ($user->role ?? null) !== 'ADMIN') {
                 throw new \RuntimeException('Transaksi APPROVED tidak boleh dihapus.');
             }
         });
