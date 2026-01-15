@@ -34,8 +34,7 @@ class TransactionPolicy
 
     public function delete(User $user, Transaction $transaction): bool
     {
-        // ADMIN cuma boleh delete kalau masih DRAFT.
-        return $user->role === 'ADMIN' && $transaction->status === 'DRAFT';
+        return $user->role === 'ADMIN';
     }
 
     public function restore(User $user, Transaction $transaction): bool
