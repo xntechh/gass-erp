@@ -12,7 +12,7 @@ class CategoryValueChart extends ChartWidget
 
     // Atur ukuran agar proporsional di dashboard
     protected int | string | array $columnSpan = 1;
-    protected static ?string $maxHeight = '200px';
+    protected static ?string $maxHeight = '260px';
 
     protected function getData(): array
     {
@@ -58,6 +58,50 @@ class CategoryValueChart extends ChartWidget
 
     protected function getType(): string
     {
-        return 'doughnut'; // Tipe Donut lebih modern & eksekutif dibanding Pie biasa
+        return 'bar';
+    }
+
+    protected function getOptions(): array
+    {
+        return [
+            'indexAxis' => 'y',
+            'plugins' => [
+                'legend' => [
+                    'display' => false,
+                ],
+                'tooltip' => [
+                    'callbacks' => [
+                        'label' => [
+                            'callback' => 'function(context) {
+                                const value = context.raw ?? 0;
+                                return new Intl.NumberFormat("id-ID", {
+                                    style: "currency",
+                                    currency: "IDR",
+                                    maximumFractionDigits: 0,
+                                }).format(value);
+                            }',
+                        ],
+                    ],
+                ],
+            ],
+            'scales' => [
+                'x' => [
+                    'ticks' => [
+                        'callback' => 'function(value) {
+                            return new Intl.NumberFormat("id-ID", {
+                                notation: "compact",
+                                compactDisplay: "short",
+                                maximumFractionDigits: 1,
+                            }).format(value);
+                        }',
+                    ],
+                ],
+                'y' => [
+                    'ticks' => [
+                        'autoSkip' => false,
+                    ],
+                ],
+            ],
+        ];
     }
 }
