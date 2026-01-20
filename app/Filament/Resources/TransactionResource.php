@@ -3,6 +3,7 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\TransactionResource\Pages;
+use App\Imports\TransactionImport;
 use App\Models\Transaction;
 use App\Models\InventoryStock; // Import Model Stok Gudang
 use Filament\Forms;
@@ -15,7 +16,9 @@ use Filament\Forms\Set;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Storage;
 use Filament\Notifications\Notification;
+use Maatwebsite\Excel\Facades\Excel;
 
 class TransactionResource extends Resource
 {
@@ -248,6 +251,31 @@ class TransactionResource extends Resource
                     ->formatStateUsing(fn($state) => str_replace('_', ' ', $state)),
             ])
             ->headerActions([
+                Tables\Actions\Action::make('importExcel')
+                    ->label('Import Excel')
+                    ->icon('heroicon-o-arrow-up-tray')
+                    ->color('success')
+                    ->visible(fn() => auth()->user()?->role === 'ADMIN')
+                    ->form([
+                        Forms\Components\Placeholder::make('import_notes')
+                            ->content('Kolom wajib: trx_date, type, warehouse/gudang, item_code/kode_barang, quantity/qty. Kolom opsional: batch, category, status, department/departemen, description/keterangan, item_name/nama_barang, price/harga.'),
+                        Forms\Components\FileUpload::make('attachment')
+                            ->label('Upload File Excel (.xlsx)')
+                            ->acceptedFileTypes(['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel'])
+                            ->disk('public')
+                            ->directory('imports')
+                            ->required(),
+                    ])
+                    ->action(function (array $data) {
+                        $filePath = Storage::disk('public')->path($data['attachment']);
+                        Excel::import(new TransactionImport(), $filePath);
+
+                        Notification::make()
+                            ->title('Sukses Import')
+                            ->body('Data transaksi berhasil ditambahkan ke database.')
+                            ->success()
+                            ->send();
+                    }),
                 // Pastikan plugin Excel terinstall. Jika error, comment bagian ini.
                 \pxlrbt\FilamentExcel\Actions\Tables\ExportAction::make()
                     ->label('Excel')
