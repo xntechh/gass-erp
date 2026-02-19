@@ -13,6 +13,7 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\Filter;
 use Illuminate\Database\Eloquent\Builder;
 
+
 class InventoryStockResource extends Resource
 {
     protected static ?string $model = InventoryStock::class;

@@ -26,7 +26,7 @@ class PlantResource extends Resource
         return $form
             ->schema([
                 Forms\Components\Section::make('Informasi Plant / Site')
-                    ->description('Data ini adalah lokasi fisik operasional utama (Induk Gudang).')
+                    ->description('Data ini adalah lokasi fisi operasional utama (Induk Gudang).')
                     ->schema([
                         Forms\Components\TextInput::make('name')
                             ->label('Nama Plant')
